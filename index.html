@@ -1,0 +1,4525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Tile Memo v12.0</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Yu Mincho', 'YuMincho', 'Hiragino Mincho ProN', 'MS PMincho', serif;
+            background: #1a1a1a;
+            padding: 0;
+            min-height: 100vh;
+            overflow-x: hidden;
+            transition: background 0.5s ease;
+        }
+
+        .bg-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            pointer-events: none;
+            z-index: -1;
+            transition: all 0.5s ease;
+        }
+
+        /* WebGL揺らぎ背景用キャンバス */
+        #bgShaderCanvas,
+        #bgWaterCanvas {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: -2;
+            display: none;
+            opacity: 0.9;
+        }
+
+        #bgWaterCanvas {
+            opacity: 1;
+        }
+
+        /* 揺らぎ/水面テーマを示すインジケーター */
+        .bg-theme-item.is-shader::before,
+        .bg-theme-item.is-water::before {
+            content: '〜';
+            position: absolute;
+            top: 6px;
+            right: 10px;
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.85);
+            text-shadow: 0 0 6px rgba(138, 154, 255, 0.8);
+            animation: shaderPulse 2.2s ease-in-out infinite;
+            z-index: 2;
+        }
+
+        .bg-theme-item.is-water::before {
+            text-shadow: 0 0 6px rgba(120, 180, 220, 0.8);
+        }
+
+        @keyframes shaderPulse {
+            0%, 100% { opacity: 0.6; transform: translateY(0); }
+            50% { opacity: 1; transform: translateY(1px); }
+        }
+
+        button, input, textarea {
+            font-family: inherit;
+        }
+
+        .tab-bar {
+            position: fixed;
+            top: var(--status-bar-height, 0px);
+            left: 0;
+            right: 55px;
+            background: rgba(42, 42, 42, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 10px 15px 10px 15px;
+            display: flex;
+            gap: 10px;
+            overflow-x: auto;
+            overflow-y: hidden;
+            white-space: nowrap;
+            z-index: 99;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+            height: 55px;
+            align-items: center;
+        }
+
+        .tab-bar::-webkit-scrollbar {
+            display: none;
+        }
+
+        .tab {
+            padding: 7px 16px;
+            background: rgba(255, 255, 255, 0.035);
+            color: #9aa;
+            border-radius: 11px;
+            cursor: pointer;
+            transition:
+                background 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+                color 0.25s,
+                border-color 0.3s,
+                box-shadow 0.3s,
+                transform 0.15s;
+            flex-shrink: 0;
+            font-size: 13.5px;
+            letter-spacing: 0.04em;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        .tab.active {
+            background: linear-gradient(135deg, rgba(94, 234, 212, 0.14) 0%, rgba(56, 189, 189, 0.18) 100%);
+            color: #dff9f3;
+            border-color: rgba(94, 234, 212, 0.45);
+            box-shadow:
+                0 0 14px rgba(94, 234, 212, 0.12),
+                inset 0 1px 0 rgba(255, 255, 255, 0.07);
+        }
+
+        .tab:active {
+            transform: scale(0.94);
+        }
+
+        /* 長押し発動時の視覚フィードバック */
+        @keyframes tabLongPress {
+            0% { transform: scale(1); box-shadow: 0 0 0 rgba(94,234,212,0); }
+            40% { transform: scale(1.08); box-shadow: 0 0 22px rgba(94,234,212,0.35); }
+            100% { transform: scale(1); box-shadow: 0 0 0 rgba(94,234,212,0); }
+        }
+
+        .tab.long-press-fired {
+            animation: tabLongPress 0.35s cubic-bezier(0.34, 1.25, 0.64, 1);
+        }
+
+        .tab-add-btn {
+            padding: 7px 14px;
+            background: transparent;
+            color: rgba(94, 234, 212, 0.7);
+            border-radius: 11px;
+            cursor: pointer;
+            transition: all 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+            flex-shrink: 0;
+            font-size: 18px;
+            font-weight: 300;
+            border: 1px dashed rgba(94, 234, 212, 0.35);
+            line-height: 1;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        .tab-add-btn:active {
+            transform: scale(0.94);
+            background: rgba(94, 234, 212, 0.12);
+        }
+
+        .container {
+            position: fixed;
+            top: calc(55px + var(--status-bar-height, 0px));
+            left: 0;
+            right: 0;
+            bottom: 0;
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding: 10px 20px 100px 20px;
+        }
+
+        .swipe-container {
+            position: relative;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+
+        .tile {
+            aspect-ratio: 1;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 12px;
+            padding: 0;
+            cursor: pointer;
+            display: flex;
+            align-items: flex-start;
+            justify-content: flex-start;
+            text-align: left;
+            color: white;
+            word-wrap: break-word;
+            overflow: hidden;
+            position: relative;
+            transition: transform 0.2s, opacity 0.25s;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.15);
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+            opacity: var(--tile-opacity, 1);
+        }
+
+        .tile:active {
+            transform: scale(0.95);
+        }
+
+        /* お気に入りタイル：右上に静かな金色の印 */
+        .tile.favorite::after {
+            content: '';
+            position: absolute;
+            top: 7px;
+            right: 7px;
+            width: 6px;
+            height: 6px;
+            background: radial-gradient(circle, #ffd24a 20%, #e0a020 85%);
+            border-radius: 50%;
+            box-shadow:
+                0 0 6px rgba(255, 210, 80, 0.55),
+                0 0 12px rgba(255, 210, 80, 0.2);
+            pointer-events: none;
+            z-index: 11;
+            transition: opacity 0.2s;
+        }
+
+        /* 編集モード中はドットを隠す（削除ボタンとの干渉回避） */
+        .tile.favorite.shaking::after {
+            opacity: 0;
+        }
+
+        .tile.shaking {
+            animation: shake 0.3s infinite;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: rotate(-1deg); }
+            50% { transform: rotate(1deg); }
+        }
+
+        .tile-content {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            line-height: 1.3;
+            font-weight: 500;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            border-radius: 11px;
+        }
+
+        .tile-title-area {
+            font-size: 13px;
+            font-weight: 600;
+            flex-shrink: 0;
+            padding: 6px 12px;
+            background: rgba(0,0,0,0.1);
+            min-height: 28px;
+            display: flex;
+            align-items: center;
+            overflow: hidden;
+        }
+
+        .tile-title-text {
+            white-space: nowrap;
+            animation: none;
+        }
+
+        .tile-title-text.scrolling {
+            animation: marquee 4s linear infinite;
+        }
+
+        @keyframes marquee {
+            0% { transform: translateX(0); }
+            14% { transform: translateX(0); }
+            86% { transform: translateX(calc(-100% + 100px)); }
+            100% { transform: translateX(calc(-100% + 100px)); }
+        }
+
+        .tile-hr {
+            height: 1px;
+            background: rgba(255,255,255,0.25);
+            flex-shrink: 0;
+            width: 100%;
+        }
+
+        .tile-body-area {
+            flex: 1;
+            overflow: hidden;
+            line-height: 1.3;
+            padding: 8px 12px 12px 12px;
+        }
+
+        .delete-btn {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            width: 24px;
+            height: 24px;
+            background: rgba(0,0,0,0.4);
+            border-radius: 50%;
+            border: none;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            transition: opacity 0.2s;
+            z-index: 10;
+        }
+
+        .tile.shaking .delete-btn {
+            display: flex;
+        }
+
+        .copy-btn {
+            position: absolute;
+            bottom: 8px;
+            left: 8px;
+            width: 28px;
+            height: 28px;
+            background: rgba(0,0,0,0.5);
+            border-radius: 6px;
+            border: none;
+            color: white;
+            font-size: 14px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+            padding: 0;
+        }
+
+        .copy-btn:active {
+            background: rgba(0,0,0,0.7);
+        }
+
+        .copy-btn.copied {
+            animation: copyEffect 0.6s ease-out;
+        }
+
+        @keyframes copyEffect {
+            0% {
+                transform: scale(1);
+                opacity: 1;
+            }
+            50% {
+                transform: scale(0.7);
+                opacity: 0.5;
+            }
+            100% {
+                transform: scale(0.3) translateY(-20px);
+                opacity: 0;
+            }
+        }
+
+        .done-btn {
+            position: fixed;
+            bottom: 30px;
+            right: 50%;
+            transform: translateX(50%);
+            padding: 12px 30px;
+            background: #667eea;
+            border-radius: 25px;
+            border: none;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+            box-shadow: 0 4px 20px rgba(102, 126, 234, 0.5);
+            display: none;
+            z-index: 200;
+        }
+
+        .done-btn.active {
+            display: block;
+        }
+
+        .tile.selected {
+            border: 3px solid #4facfe;
+            box-shadow: 0 0 15px rgba(79, 172, 254, 0.6);
+        }
+
+        .action-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: #2a2a2a;
+            padding: 15px 20px;
+            display: none;
+            justify-content: center;
+            gap: 20px;
+            z-index: 200;
+            border-top: 1px solid #444;
+        }
+
+        .action-bar.active {
+            display: flex;
+        }
+
+        .action-btn {
+            padding: 12px 30px;
+            border-radius: 25px;
+            border: none;
+            font-size: 16px;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .action-btn:active {
+            transform: scale(0.95);
+        }
+
+        .action-btn.move {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+        }
+
+        .action-btn.delete {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .action-btn.paste {
+            background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+            color: white;
+            width: 100%;
+            max-width: 300px;
+        }
+
+        .action-btn.cancel {
+            background: #555;
+            color: white;
+        }
+
+        .add-btn {
+            position: fixed;
+            bottom: 22px;
+            right: 50%;
+            transform: translateX(50%);
+            width: 62px;
+            height: 62px;
+            background:
+                radial-gradient(circle at 30% 25%, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0) 42%),
+                linear-gradient(145deg, #7c8ef0 0%, #6b5ea8 55%, #553d8a 100%);
+            border-radius: 18px;
+            border: 1px solid rgba(255, 255, 255, 0.22);
+            color: transparent;
+            font-size: 0;
+            cursor: pointer;
+            box-shadow:
+                0 10px 28px rgba(102, 126, 234, 0.4),
+                0 3px 8px rgba(0, 0, 0, 0.25),
+                inset 0 1px 0 rgba(255, 255, 255, 0.28),
+                inset 0 -2px 4px rgba(0, 0, 0, 0.18);
+            transition:
+                transform 0.28s cubic-bezier(0.34, 1.3, 0.64, 1),
+                box-shadow 0.28s ease,
+                filter 0.25s ease;
+            padding: 0;
+            overflow: hidden;
+        }
+
+        /* ＋マークを2本の発光線で描画 */
+        .add-btn::before,
+        .add-btn::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            background: #ffffff;
+            border-radius: 2px;
+            box-shadow: 0 0 10px rgba(255, 255, 255, 0.45), 0 0 20px rgba(180, 192, 255, 0.3);
+            pointer-events: none;
+            transition: transform 0.25s cubic-bezier(0.34, 1.3, 0.64, 1);
+        }
+
+        .add-btn::before {
+            width: 22px;
+            height: 2.5px;
+            transform: translate(-50%, -50%);
+        }
+
+        .add-btn::after {
+            width: 2.5px;
+            height: 22px;
+            transform: translate(-50%, -50%);
+        }
+
+        .add-btn:active {
+            transform: translateX(50%) scale(0.92);
+            box-shadow:
+                0 4px 14px rgba(102, 126, 234, 0.5),
+                0 1px 3px rgba(0, 0, 0, 0.3),
+                inset 0 1px 0 rgba(255, 255, 255, 0.15),
+                inset 0 2px 6px rgba(0, 0, 0, 0.3);
+            filter: brightness(0.95);
+        }
+
+        .add-btn:active::before,
+        .add-btn:active::after {
+            transform: translate(-50%, -50%) scale(0.88);
+        }
+
+        /* ========= メモ入力モーダル（刷新版） ========= */
+        .modal {
+            display: flex;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0);
+            z-index: 1000;
+            align-items: stretch;
+            justify-content: center;
+            padding: 0;
+            visibility: hidden;
+            pointer-events: none;
+            transition:
+                background 0.35s ease,
+                visibility 0s linear 0.45s;
+        }
+
+        .modal.active {
+            visibility: visible;
+            background: rgba(0, 0, 0, 0.72);
+            pointer-events: auto;
+            transition:
+                background 0.4s ease,
+                visibility 0s linear 0s;
+        }
+
+        .modal-content {
+            background: #1f1f22;
+            border-radius: 28px;
+            padding: var(--status-bar-height, 0px) 0 0 0;
+            width: 100%;
+            max-width: 100vw;
+            height: 100vh;
+            max-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            transform-origin: bottom center;
+            transform: translateY(40vh) scale(0.12);
+            opacity: 0;
+            box-shadow: 0 -20px 60px rgba(102, 126, 234, 0.25);
+            transition:
+                transform 0.5s cubic-bezier(0.32, 0.72, 0.26, 1.02),
+                opacity 0.38s cubic-bezier(0.22, 1, 0.36, 1),
+                border-radius 0.5s cubic-bezier(0.32, 0.72, 0.26, 1.02);
+        }
+
+        .modal.active .modal-content {
+            transform: translateY(0) scale(1);
+            opacity: 1;
+            border-radius: 0;
+        }
+
+        /* 上部：タイトル + 右端アイコン群 */
+        .modal-header {
+            display: flex;
+            align-items: center;
+            gap: 2px;
+            padding: 8px 10px 6px 12px;
+            background: transparent;
+            margin-bottom: 0;
+            flex-shrink: 0;
+            position: relative;
+        }
+
+        .title-input {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: #f0f0f0;
+            font-size: 15px;
+            padding: 6px 2px;
+            outline: none;
+            font-family: inherit;
+            min-width: 0;
+            letter-spacing: 0.02em;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.25s;
+        }
+
+        .title-input:focus {
+            border-bottom-color: rgba(138, 154, 255, 0.4);
+        }
+
+        .title-input::placeholder {
+            color: #555;
+            font-size: 14px;
+        }
+
+        /* 右端のアイコンボタン群 */
+        .modal-buttons {
+            display: flex;
+            align-items: center;
+            gap: 0;
+        }
+
+        .favorite-btn,
+        .modal-btn {
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            padding: 0;
+            transition: transform 0.15s, color 0.2s, opacity 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .favorite-btn {
+            color: #555;
+            font-size: 22px;
+            width: 36px;
+            height: 36px;
+        }
+
+        .favorite-btn.active {
+            color: #ffd24a;
+            text-shadow: 0 0 10px rgba(255, 210, 74, 0.4);
+        }
+
+        .favorite-btn:active,
+        .modal-btn:active {
+            transform: scale(0.88);
+        }
+
+        /* 保存 → 控えめなアイコン化（チェックマーク） */
+        .save-btn {
+            width: 36px;
+            height: 36px;
+            color: #8a9aff;
+            font-size: 0;
+            position: relative;
+        }
+
+        .save-btn::before {
+            content: '';
+            width: 14px;
+            height: 8px;
+            border-left: 2px solid currentColor;
+            border-bottom: 2px solid currentColor;
+            transform: rotate(-45deg) translateY(-2px);
+            display: block;
+        }
+
+        .save-btn:active {
+            color: #b4c0ff;
+        }
+
+        /* 閉じる → シンプルな × */
+        .close-btn {
+            width: 36px;
+            height: 36px;
+            color: #666;
+            font-size: 22px;
+            font-weight: 300;
+            line-height: 1;
+            padding: 0 0 2px 0;
+        }
+
+        .close-btn:active {
+            color: #aaa;
+        }
+
+        /* 文字数カウント：右下にフローティング */
+        .char-count-outer {
+            position: absolute;
+            bottom: 10px;
+            right: 14px;
+            color: #444;
+            font-size: 10px;
+            letter-spacing: 0.1em;
+            pointer-events: none;
+            z-index: 5;
+            transition: opacity 0.3s;
+        }
+
+        /* textarea：枠を完全に消してシームレスに */
+        .modal textarea {
+            width: 100%;
+            flex: 1;
+            min-height: 0;
+            background: transparent;
+            border: none;
+            border-radius: 0;
+            padding: 6px 14px 28px 14px;
+            color: #f0f0f0;
+            font-size: 17px;
+            line-height: 1.7;
+            font-family: inherit;
+            resize: none;
+            outline: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .modal textarea::placeholder {
+            color: #3a3a3a;
+        }
+
+        .modal textarea:focus {
+            outline: none;
+        }
+
+        /* ヘッダー下の極細セパレータ（アクセント） */
+        .modal-header::after {
+            content: '';
+            position: absolute;
+            left: 14px;
+            right: 14px;
+            bottom: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent 0%, rgba(138, 154, 255, 0.22) 50%, transparent 100%);
+            pointer-events: none;
+        }
+
+        .empty-state {
+            text-align: center;
+            color: #666;
+            padding: 60px 20px;
+            font-size: 18px;
+        }
+
+        .menu-btn {
+            position: fixed;
+            top: var(--status-bar-height, 0px);
+            right: 0;
+            width: 55px;
+            height: 55px;
+            background: rgba(42, 42, 42, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 0;
+            border: none;
+            border-left: 1px solid rgba(255, 255, 255, 0.05);
+            color: #888;
+            font-size: 22px;
+            cursor: pointer;
+            z-index: 101;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            transition: color 0.25s, background 0.25s;
+        }
+
+        .menu-btn.active {
+            color: #b4c0ff;
+            background: rgba(55, 58, 82, 0.95);
+        }
+
+        .menu-btn:active {
+            background: rgba(55, 58, 82, 0.95);
+        }
+
+        .menu-dropdown {
+            display: block;
+            position: fixed;
+            top: 58px;
+            right: 8px;
+            width: min(78vw, 258px);
+            max-height: min(72vh, 520px);
+            background: linear-gradient(180deg, rgba(28, 30, 42, 0.82) 0%, rgba(22, 24, 34, 0.88) 100%);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            border: 1px solid rgba(138, 154, 255, 0.12);
+            border-radius: 16px;
+            padding: 8px;
+            box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
+            z-index: 100;
+            min-width: 0;
+            opacity: 0;
+            pointer-events: none;
+            transform-origin: top right;
+            transform: scale(0.88) translateY(-8px);
+            overflow-y: auto;
+            transition:
+                opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+                transform 0.4s cubic-bezier(0.34, 1.25, 0.64, 1);
+        }
+
+        .menu-dropdown.active {
+            opacity: 1;
+            pointer-events: auto;
+            transform: scale(1) translateY(0);
+        }
+
+        .menu-section {
+            padding: 10px 8px 12px 8px;
+            border-bottom: 1px solid rgba(138, 154, 255, 0.08);
+        }
+
+        .menu-label {
+            color: #8891b5;
+            font-size: 11px;
+            letter-spacing: 0.08em;
+            margin-bottom: 8px;
+            padding-left: 4px;
+        }
+
+        /* 列数の±コントロール */
+        .column-control {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .column-btn {
+            width: 36px;
+            height: 36px;
+            background: rgba(138, 154, 255, 0.08);
+            border: 1px solid rgba(138, 154, 255, 0.18);
+            border-radius: 10px;
+            color: #b4c0ff;
+            font-size: 18px;
+            font-weight: 300;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.15s, background 0.2s, opacity 0.2s;
+            user-select: none;
+            -webkit-user-select: none;
+            padding: 0;
+            flex-shrink: 0;
+            line-height: 1;
+        }
+
+        .column-btn:active {
+            transform: scale(0.88);
+            background: rgba(138, 154, 255, 0.18);
+        }
+
+        .column-btn.disabled {
+            opacity: 0.25;
+            pointer-events: none;
+        }
+
+        .column-value {
+            color: #f0f0f0;
+            font-size: 15px;
+            text-align: center;
+            flex: 1;
+            font-variant-numeric: tabular-nums;
+            letter-spacing: 0.04em;
+            margin: 0;
+        }
+
+        .menu-item {
+            padding: 10px 12px;
+            color: #e8e8e8;
+            cursor: pointer;
+            border-radius: 9px;
+            transition: background 0.18s;
+            font-size: 13.5px;
+            letter-spacing: 0.01em;
+        }
+
+        .menu-item:hover {
+            background: rgba(138, 154, 255, 0.1);
+        }
+
+        .menu-item:active {
+            background: rgba(138, 154, 255, 0.18);
+        }
+
+        .hidden-input {
+            display: none;
+        }
+
+        .trash-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .trash-modal.active {
+            display: flex;
+        }
+
+        .trash-content {
+            background: #2a2a2a;
+            border-radius: 20px;
+            padding: 30px;
+            width: 100%;
+            max-width: 500px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .trash-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .trash-title {
+            color: white;
+            font-size: 20px;
+            font-weight: bold;
+        }
+
+        .trash-clear-btn {
+            padding: 8px 15px;
+            background: #e74c3c;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .trash-item {
+            background: #1a1a1a;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 10px;
+            color: white;
+            position: relative;
+        }
+
+        .trash-text {
+            font-size: 14px;
+            margin-bottom: 10px;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 60px;
+            overflow: hidden;
+        }
+
+        .trash-buttons {
+            display: flex;
+            gap: 10px;
+        }
+
+        .trash-restore-btn, .trash-delete-btn {
+            flex: 1;
+            padding: 8px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .trash-restore-btn {
+            background: #667eea;
+            color: white;
+        }
+
+        .trash-delete-btn {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .trash-empty {
+            text-align: center;
+            color: #666;
+            padding: 40px 20px;
+        }
+
+        .trash-close-btn {
+            width: 100%;
+            padding: 12px;
+            background: #3a3a3a;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            margin-top: 15px;
+            font-size: 16px;
+        }
+
+        .thumbnail-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.85);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .thumbnail-modal.active {
+            display: flex;
+        }
+
+        .thumbnail-modal-content {
+            background: #2a2a2a;
+            border-radius: 20px;
+            padding: 30px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 25px;
+        }
+
+        .thumbnail-preview-tile {
+            width: 150px;
+            height: 150px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 12px;
+            padding: 15px;
+            display: flex;
+            align-items: flex-start;
+            justify-content: flex-start;
+            color: white;
+            border: 1px solid rgba(255,255,255,0.15);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        .thumbnail-preview-text {
+            font-size: 14px;
+            line-height: 1.4;
+            word-break: break-all;
+        }
+
+        .thumbnail-slider-area {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .thumbnail-slider {
+            width: 200px;
+            height: 6px;
+            -webkit-appearance: none;
+            background: #444;
+            border-radius: 3px;
+            outline: none;
+        }
+
+        .thumbnail-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 22px;
+            height: 22px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        .thumbnail-value {
+            color: #888;
+            font-size: 14px;
+        }
+
+        .settings-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.85);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .settings-modal.active {
+            display: flex;
+        }
+
+        .settings-content {
+            background: #2a2a2a;
+            border-radius: 20px;
+            padding: 25px;
+            width: 100%;
+            max-width: 400px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .settings-header {
+            color: white;
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .settings-section {
+            margin-bottom: 25px;
+        }
+
+        .settings-section-title {
+            color: #888;
+            font-size: 12px;
+            text-transform: uppercase;
+            margin-bottom: 10px;
+            letter-spacing: 1px;
+        }
+
+        .settings-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: white;
+            font-size: 14px;
+            cursor: pointer;
+            padding: 12px;
+            background: #1a1a1a;
+            border-radius: 10px;
+        }
+
+        .settings-checkbox input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            accent-color: #667eea;
+        }
+
+        .settings-radio-group {
+            display: flex;
+            gap: 10px;
+        }
+
+        .settings-radio {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            color: white;
+            font-size: 14px;
+            cursor: pointer;
+            padding: 12px;
+            background: #1a1a1a;
+            border-radius: 10px;
+            border: 2px solid transparent;
+        }
+
+        .settings-radio:has(input:checked) {
+            border-color: #667eea;
+            background: rgba(102, 126, 234, 0.1);
+        }
+
+        .settings-radio input[type="radio"] {
+            width: 18px;
+            height: 18px;
+            accent-color: #667eea;
+        }
+
+        .settings-btn {
+            padding: 12px 15px;
+            background: #1a1a1a;
+            color: white;
+            border-radius: 10px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .settings-btn:active {
+            background: #333;
+        }
+
+        .settings-close-btn {
+            width: 100%;
+            padding: 12px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+
+        .search-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.9);
+            z-index: 990;
+            flex-direction: column;
+            padding: calc(15px + var(--status-bar-height, 0px)) 15px 15px 15px;
+        }
+
+        .search-modal.active {
+            display: flex;
+        }
+
+        .search-content {
+            width: 100%;
+            max-width: 600px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+
+        .search-header {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .search-input {
+            flex: 1;
+            background: #2a2a2a;
+            border: 2px solid #667eea;
+            border-radius: 12px;
+            padding: 12px 15px;
+            color: white;
+            font-size: 16px;
+            font-family: inherit;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: #764ba2;
+        }
+
+        .search-close {
+            width: 45px;
+            background: #3a3a3a;
+            border: none;
+            border-radius: 12px;
+            color: #888;
+            font-size: 20px;
+            cursor: pointer;
+        }
+
+        .search-results {
+            flex: 1;
+            overflow-y: auto;
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            padding: 4px 2px 20px 2px;
+            align-content: start;
+        }
+
+        .search-result-item {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            cursor: pointer;
+            transition: transform 0.18s;
+        }
+
+        .search-result-item:active {
+            transform: scale(0.97);
+        }
+
+        /* 検索結果タイルは既存の.tile styleを継承、aspect-ratioだけ明示 */
+        .tile.search-tile {
+            aspect-ratio: 1;
+        }
+
+        .search-result-folder {
+            font-size: 11px;
+            color: #8891b5;
+            padding: 0 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            letter-spacing: 0.02em;
+        }
+
+        .search-no-results {
+            grid-column: 1 / -1;
+            text-align: center;
+            color: #666;
+            padding: 40px 20px;
+        }
+
+        .fontsize-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .fontsize-modal.active {
+            display: flex;
+        }
+
+        .fontsize-content {
+            background: #2a2a2a;
+            border-radius: 20px;
+            padding: 30px;
+            width: 100%;
+            max-width: 400px;
+        }
+
+        .fontsize-header {
+            color: white;
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 20px;
+        }
+
+        .fontsize-slider {
+            width: 100%;
+            height: 6px;
+            background: #3a3a3a;
+            border-radius: 5px;
+            outline: none;
+            -webkit-appearance: none;
+            margin-bottom: 20px;
+        }
+
+        .fontsize-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            background: #667eea;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        .fontsize-slider::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            background: #667eea;
+            border-radius: 50%;
+            cursor: pointer;
+            border: none;
+        }
+
+        .fontsize-preview {
+            background: #1a1a1a;
+            border-radius: 15px;
+            padding: 20px;
+            color: white;
+            margin-bottom: 20px;
+            min-height: 100px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .fontsize-close-btn {
+            width: 100%;
+            padding: 12px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        .folder-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .folder-modal.active {
+            display: flex;
+        }
+
+        .folder-content {
+            background: #2a2a2a;
+            border-radius: 20px;
+            padding: 30px;
+            width: 100%;
+            max-width: 350px;
+        }
+
+        .folder-header {
+            color: white;
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 20px;
+        }
+
+        .folder-input {
+            width: 100%;
+            background: #1a1a1a;
+            border: 2px solid #667eea;
+            border-radius: 10px;
+            padding: 12px;
+            color: white;
+            font-size: 16px;
+            margin-bottom: 20px;
+            font-family: inherit;
+        }
+
+        .folder-input:focus {
+            outline: none;
+            border-color: #764ba2;
+        }
+
+        .folder-buttons {
+            display: flex;
+            gap: 10px;
+        }
+
+        .folder-btn {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        .folder-cancel {
+            background: #3a3a3a;
+            color: white;
+        }
+
+        .folder-save {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .folder-delete {
+            width: 100%;
+            padding: 12px;
+            background: #e74c3c;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+
+        .tab.drag-over {
+            transform: scale(1.1);
+            box-shadow: 0 0 20px rgba(255,255,255,0.5);
+        }
+
+        .tile.dragging {
+            opacity: 0.5;
+        }
+
+        .hello-overlay {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 48px;
+            font-weight: bold;
+            color: white;
+            text-shadow: 0 0 20px rgba(255,255,255,0.5);
+            pointer-events: none;
+            z-index: 9999;
+            opacity: 0;
+            transition: opacity 0.5s ease-out;
+        }
+
+        .hello-overlay.show {
+            opacity: 1;
+        }
+
+        .hello-overlay.fade {
+            opacity: 0;
+        }
+
+        .theme-tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 15px;
+        }
+
+        .theme-tab {
+            flex: 1;
+            padding: 10px;
+            background: #1a1a1a;
+            color: #888;
+            border: none;
+            border-radius: 10px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .theme-tab.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .theme-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-bottom: 20px;
+            max-height: 50vh;
+            overflow-y: auto;
+        }
+
+        .theme-item {
+            padding: 20px;
+            border-radius: 12px;
+            cursor: pointer;
+            text-align: center;
+            color: white;
+            font-size: 14px;
+            font-weight: 500;
+            border: 3px solid transparent;
+            transition: all 0.2s;
+        }
+
+        .theme-item.selected {
+            border-color: white;
+            box-shadow: 0 0 20px rgba(255,255,255,0.3);
+        }
+
+        .theme-item:active {
+            transform: scale(0.95);
+        }
+
+        .bg-theme-item {
+            padding: 25px 15px;
+            border-radius: 12px;
+            cursor: pointer;
+            text-align: center;
+            color: white;
+            font-size: 13px;
+            font-weight: 500;
+            border: 3px solid transparent;
+            transition: all 0.2s;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .bg-theme-item.selected {
+            border-color: #667eea;
+            box-shadow: 0 0 20px rgba(102, 126, 234, 0.5);
+        }
+
+        .bg-theme-item:active {
+            transform: scale(0.95);
+        }
+
+        .bg-theme-item .theme-name {
+            position: relative;
+            z-index: 1;
+            text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+        }
+
+        /* タイル透け感スライダー */
+        .tile-opacity-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 14px 4px 6px 4px;
+            margin-top: 4px;
+        }
+
+        .tile-opacity-label {
+            color: #bbb;
+            font-size: 12px;
+            letter-spacing: 0.08em;
+            flex-shrink: 0;
+        }
+
+        .tile-opacity-slider {
+            flex: 1;
+            height: 4px;
+            background: linear-gradient(90deg, rgba(138,154,255,0.15) 0%, rgba(138,154,255,0.6) 100%);
+            border-radius: 3px;
+            outline: none;
+            -webkit-appearance: none;
+            appearance: none;
+            cursor: pointer;
+        }
+
+        .tile-opacity-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            background: #8a9aff;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 0 8px rgba(138,154,255,0.5);
+            border: 2px solid rgba(255,255,255,0.9);
+        }
+
+        .tile-opacity-slider::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            background: #8a9aff;
+            border-radius: 50%;
+            cursor: pointer;
+            border: 2px solid rgba(255,255,255,0.9);
+            box-shadow: 0 0 8px rgba(138,154,255,0.5);
+        }
+
+        .tile-opacity-value {
+            color: #8a9aff;
+            font-size: 12px;
+            font-variant-numeric: tabular-nums;
+            min-width: 42px;
+            text-align: right;
+            letter-spacing: 0.02em;
+            flex-shrink: 0;
+        }
+
+        @media (min-width: 400px) {
+            .grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="safeAreaProbe" style="position:fixed;top:0;left:0;width:1px;height:env(safe-area-inset-top,0px);pointer-events:none;opacity:0;"></div>
+    <canvas id="bgShaderCanvas"></canvas>
+    <canvas id="bgWaterCanvas"></canvas>
+    <div class="bg-overlay" id="bgOverlay"></div>
+
+    <div class="tab-bar" id="tabBar"></div>
+
+    <div class="hello-overlay" id="helloOverlay">Hello</div>
+
+    <button class="menu-btn" id="menuBtn" aria-label="Menu">⋮</button>
+    <div class="menu-dropdown" id="menuDropdown">
+        <div class="menu-item" id="searchBtn">🔍 Search</div>
+        <div class="menu-item" id="tileThemeBtn">🎨 Tile Theme</div>
+        <div class="menu-item" id="bgThemeBtn">🖼️ Background Theme</div>
+        <div class="menu-section">
+            <div class="menu-label">Columns</div>
+            <div class="column-control">
+                <button class="column-btn" id="columnMinusBtn" aria-label="Decrease columns">−</button>
+                <div class="column-value" id="columnValue">2 cols</div>
+                <button class="column-btn" id="columnPlusBtn" aria-label="Increase columns">＋</button>
+            </div>
+        </div>
+        <div class="menu-item" id="fontsizeBtn">🔤 Input Font Size</div>
+        <div class="menu-item" id="thumbnailSizeBtn">🔲 Tile Font Size</div>
+        <div class="menu-item" id="sortBtn">🔄 Sort: Newest</div>
+        <div class="menu-item" id="trashBtn">🗑️ Trash</div>
+        <div class="menu-item" id="helloBtn">Hello</div>
+        <div class="menu-item" id="settingsBtn">⚙️ Settings</div>
+    </div>
+    <input type="file" id="fileInput" class="hidden-input" accept=".json">
+
+    <!-- 設定モーダル -->
+    <div class="settings-modal" id="settingsModal">
+        <div class="settings-content">
+            <div class="settings-header">⚙️ Settings</div>
+            
+            <div class="settings-section">
+                <div class="settings-section-title">Display</div>
+                <label class="settings-checkbox">
+                    <input type="checkbox" id="perFolderColumnCheck">
+                    <span>Use different column count per folder</span>
+                </label>
+                <label class="settings-checkbox" style="margin-top: 8px;">
+                    <input type="checkbox" id="perFolderThemeCheck">
+                    <span>Use different theme per folder</span>
+                </label>
+            </div>
+            
+            <div class="settings-section">
+                <div class="settings-section-title">Font</div>
+                <div class="settings-radio-group">
+                    <label class="settings-radio">
+                        <input type="radio" name="fontType" value="mincho" id="fontMincho">
+                        <span>Serif</span>
+                    </label>
+                    <label class="settings-radio">
+                        <input type="radio" name="fontType" value="gothic" id="fontGothic">
+                        <span>Sans-serif</span>
+                    </label>
+                </div>
+            </div>
+            
+            <div class="settings-section">
+                <div class="settings-section-title">Backup</div>
+                <div class="settings-btn" id="exportBtn">📤 Export Data</div>
+                <div class="settings-btn" id="importBtn">📥 Import Data</div>
+            </div>
+            
+            <button class="settings-close-btn" id="settingsCloseBtn">Close</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="swipe-container" id="swipeContainer">
+            <div class="grid" id="grid"></div>
+            <div class="empty-state" id="emptyState">
+                Tap to create your first memo
+            </div>
+        </div>
+    </div>
+
+    <button class="add-btn" id="addBtn">+</button>
+    <button class="done-btn" id="doneBtn">Done</button>
+    
+    <div class="action-bar" id="actionBar">
+        <button class="action-btn move" id="moveBtn">Move</button>
+        <button class="action-btn delete" id="bulkDeleteBtn">Delete</button>
+    </div>
+    
+    <div class="action-bar" id="pasteBar">
+        <button class="action-btn cancel" id="pasteCancelBtn">Cancel</button>
+        <button class="action-btn paste" id="pasteBtn">Paste Here</button>
+    </div>
+
+    <div class="modal" id="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <input type="text" class="title-input" id="titleInput" placeholder="Title">
+                <button class="favorite-btn" id="favoriteBtn" aria-label="Favorite">☆</button>
+                <div class="modal-buttons">
+                    <button class="modal-btn save-btn" id="saveBtn" aria-label="Save"></button>
+                    <button class="modal-btn close-btn" id="closeBtn" aria-label="Close">×</button>
+                </div>
+            </div>
+            <div class="char-count-outer" id="charCountOuter">0</div>
+            <textarea id="memoInput" placeholder="Type a memo..."></textarea>
+        </div>
+    </div>
+
+    <div class="fontsize-modal" id="fontsizeModal">
+        <div class="fontsize-content">
+            <div class="fontsize-header">Input Font Size</div>
+            <input type="range" min="12" max="28" value="18" class="fontsize-slider" id="fontsizeSlider">
+            <div class="fontsize-preview" id="fontsizePreview">
+                This is sample text. This is the size used while typing.
+            </div>
+            <button class="fontsize-close-btn" id="fontsizeCloseBtn">Done</button>
+        </div>
+    </div>
+
+    <div class="folder-modal" id="folderModal">
+        <div class="folder-content">
+            <div class="folder-header" id="folderModalTitle">Folder Name</div>
+            <input type="text" class="folder-input" id="folderInput" placeholder="Enter folder name">
+            <div class="folder-buttons">
+                <button class="folder-btn folder-cancel" id="folderCancelBtn">Cancel</button>
+                <button class="folder-btn folder-save" id="folderSaveBtn">Save</button>
+            </div>
+            <button class="folder-delete" id="folderDeleteBtn" style="display: none;">Delete This Folder</button>
+        </div>
+    </div>
+
+    <div class="fontsize-modal" id="tileThemeModal">
+        <div class="fontsize-content">
+            <div class="fontsize-header">🎨 Tile Theme</div>
+            <div class="theme-tabs">
+                <button class="theme-tab active" id="themeTabBasic">Basic</button>
+                <button class="theme-tab" id="themeTabTexture">Texture</button>
+            </div>
+            <div class="theme-grid" id="themeGrid"></div>
+            <div class="tile-opacity-row">
+                <span class="tile-opacity-label">Opacity</span>
+                <input type="range" class="tile-opacity-slider" id="tileOpacitySlider" min="0.3" max="1" step="0.05" value="1">
+                <span class="tile-opacity-value" id="tileOpacityValue">100%</span>
+            </div>
+            <button class="fontsize-close-btn" id="tileThemeCloseBtn">Done</button>
+        </div>
+    </div>
+
+    <!-- 背景テーマモーダル -->
+    <div class="fontsize-modal" id="bgThemeModal">
+        <div class="fontsize-content">
+            <div class="fontsize-header">🖼️ Background Theme</div>
+            <div class="theme-grid" id="bgThemeGrid"></div>
+            <button class="fontsize-close-btn" id="bgThemeCloseBtn">Done</button>
+        </div>
+    </div>
+
+    <div class="trash-modal" id="trashModal">
+        <div class="trash-content">
+            <div class="trash-header">
+                <div class="trash-title">🗑️ Trash</div>
+                <button class="trash-clear-btn" id="trashClearBtn">Empty All</button>
+            </div>
+            <div id="trashList"></div>
+            <button class="trash-close-btn" id="trashCloseBtn">Close</button>
+        </div>
+    </div>
+
+    <div class="thumbnail-modal" id="thumbnailModal">
+        <div class="thumbnail-modal-content">
+            <div class="thumbnail-preview-tile" id="thumbnailPreviewTile">
+                <div class="thumbnail-preview-text" id="thumbnailPreviewText">Sample</div>
+            </div>
+            <div class="thumbnail-slider-area">
+                <input type="range" min="8" max="24" value="14" class="thumbnail-slider" id="thumbnailSlider">
+                <div class="thumbnail-value" id="thumbnailValue">14px</div>
+            </div>
+            <button class="fontsize-close-btn" id="thumbnailCloseBtn">Done</button>
+        </div>
+    </div>
+
+    <div class="search-modal" id="searchModal">
+        <div class="search-content">
+            <div class="search-header">
+                <input type="text" class="search-input" id="searchInput" placeholder="Search memos...">
+                <button class="search-close" id="searchCloseBtn">×</button>
+            </div>
+            <div class="search-results" id="searchResults"></div>
+        </div>
+    </div>
+
+    <script>
+        // ステータスバー(セーフエリア)の高さを実測してCSS変数へ反映
+        (function() {
+            const probe = document.getElementById('safeAreaProbe');
+            if (probe) {
+                const h = probe.getBoundingClientRect().height;
+                document.documentElement.style.setProperty('--status-bar-height', h + 'px');
+                probe.remove();
+            }
+        })();
+
+        let folders = JSON.parse(localStorage.getItem('folders')) || [];
+        let currentFolderId = localStorage.getItem('currentFolderId') || null;
+        
+        // フォルダがあるのにcurrentFolderIdがない場合は最初のフォルダを選択
+        if (folders.length > 0 && !currentFolderId) {
+            currentFolderId = folders[0].id;
+        }
+        
+        let currentTheme = localStorage.getItem('currentTheme') || 'purple';
+        let currentBgTheme = localStorage.getItem('currentBgTheme') || 'abyss';
+        let currentTileOpacity = parseFloat(localStorage.getItem('currentTileOpacity')) || 1;
+        let memos = []; // 現在のフォルダのメモ
+        let trashedMemos = JSON.parse(localStorage.getItem('trashedMemos')) || [];
+        let columnCount = parseInt(localStorage.getItem('columnCount')) || 2;
+        let perFolderColumn = localStorage.getItem('perFolderColumn') === 'true';
+        let perFolderTheme = localStorage.getItem('perFolderTheme') === 'true';
+        let sortOrder = localStorage.getItem('sortOrder') || 'newest';
+        let inputFontSize = parseInt(localStorage.getItem('inputFontSize')) || 18;
+        let thumbnailFontSize = parseInt(localStorage.getItem('thumbnailFontSize')) || 14;
+        let fontType = localStorage.getItem('fontType') || 'mincho';
+        let editingIndex = null;
+        let isEditMode = false;
+        let longPressTimer = null;
+        let folderModalMode = 'add';
+        let draggingMemoIndex = null;
+        let dragStartY = 0;
+        let selectedMemos = []; // 選択されたメモのインデックス
+        let clipboardMemos = []; // 移動用にコピーされたメモ
+        let isMoveMode = false; // 移動モード中かどうか
+        let isAnimating = false; // ページ遷移アニメーション中
+
+        const themes = {
+            colorful: { name: 'Colorful', gradient: 'colorful', isRandom: true },
+            dark: { name: 'Dark', gradient: 'linear-gradient(135deg, #2c3e50 0%, #1a1a2e 100%)' },
+            white: { name: 'White', gradient: 'linear-gradient(135deg, #e0e0e0 0%, #f5f5f5 100%)', darkText: true },
+            purple: { name: 'Purple', gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' },
+            pink: { name: 'Pink', gradient: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)' },
+            blue: { name: 'Blue', gradient: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)' },
+            green: { name: 'Green', gradient: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)' },
+            sunset: { name: 'Sunset', gradient: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)' },
+            ocean: { name: 'Ocean', gradient: 'linear-gradient(135deg, #30cfd0 0%, #330867 100%)' },
+            pastel: { name: 'Pastel', gradient: 'linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)' },
+            candy: { name: 'Candy', gradient: 'linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%)' }
+        };
+
+        // 質感テーマ（ページ2）
+        const textureThemes = {
+            quietDepth: { 
+                name: 'Quiet Depth', 
+                gradient: 'linear-gradient(145deg, #5a4a7a 0%, #3d3055 100%)',
+                shadow: 'inset 0 2px 4px rgba(255,255,255,0.08), inset 0 -3px 6px rgba(0,0,0,0.3), 0 4px 12px rgba(0,0,0,0.4)'
+            },
+            paperLayers: { 
+                name: 'Layered Paper', 
+                gradient: 'linear-gradient(145deg, rgba(255,255,255,0.03) 0%, transparent 50%), linear-gradient(135deg, #4a6b8a 0%, #2d4a5e 100%)',
+                shadow: 'inset 0 1px 2px rgba(255,255,255,0.1), inset 0 -2px 4px rgba(0,0,0,0.2), 0 3px 10px rgba(0,0,0,0.35)',
+                border: '1px solid rgba(255,255,255,0.06)'
+            },
+            sunkenGlass: { 
+                name: 'Sinking Glass', 
+                gradient: 'linear-gradient(150deg, #4a5568 0%, #2d3748 100%)',
+                shadow: 'inset 2px 2px 6px rgba(0,0,0,0.4), inset -1px -1px 3px rgba(255,255,255,0.05), 0 2px 8px rgba(0,0,0,0.3)',
+                border: '1px solid rgba(255,255,255,0.04)'
+            },
+            floatingStone: { 
+                name: 'Floating Stone', 
+                gradient: 'linear-gradient(140deg, #5c6b5a 0%, #3a4538 100%)',
+                shadow: 'inset 0 1px 1px rgba(255,255,255,0.12), 0 6px 20px rgba(0,0,0,0.5), 0 2px 4px rgba(0,0,0,0.3)',
+                border: '1px solid rgba(255,255,255,0.08)'
+            },
+            fabric: { 
+                name: 'Cloth Surface', 
+                gradient: 'linear-gradient(160deg, rgba(255,255,255,0.04) 0%, transparent 40%), linear-gradient(135deg, #6b5b5b 0%, #4a3c3c 100%)',
+                shadow: 'inset 0 0 8px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.08), 0 4px 15px rgba(0,0,0,0.4)'
+            },
+            mistLayer: { 
+                name: 'Foggy Layer', 
+                gradient: 'linear-gradient(135deg, #7a6b8a 0%, #4a4055 100%)',
+                shadow: 'inset 0 0 20px rgba(255,255,255,0.05), inset 0 2px 3px rgba(255,255,255,0.08), inset 0 -4px 8px rgba(0,0,0,0.25), 0 5px 15px rgba(0,0,0,0.35)'
+            },
+            metalMemory: { 
+                name: 'Metal Memory', 
+                gradient: 'linear-gradient(135deg, rgba(255,255,255,0.08) 0%, transparent 30%, transparent 70%, rgba(0,0,0,0.1) 100%), linear-gradient(145deg, #5a5a6a 0%, #3a3a4a 100%)',
+                shadow: 'inset 0 1px 0 rgba(255,255,255,0.15), inset 0 -1px 0 rgba(0,0,0,0.3), 0 4px 12px rgba(0,0,0,0.4)',
+                border: '1px solid rgba(255,255,255,0.05)'
+            },
+            underwater: { 
+                name: 'Riverbed', 
+                gradient: 'radial-gradient(ellipse at 30% 20%, rgba(255,255,255,0.06) 0%, transparent 50%), linear-gradient(140deg, #3a5a6a 0%, #1a3040 100%)',
+                shadow: 'inset 0 3px 6px rgba(255,255,255,0.04), inset 0 -4px 10px rgba(0,0,0,0.3), 0 5px 18px rgba(0,0,0,0.45)'
+            },
+            ceramic: { 
+                name: 'Ceramic', 
+                gradient: 'linear-gradient(150deg, #8a7a6a 0%, #5a4a3a 100%)',
+                shadow: 'inset 0 2px 4px rgba(255,255,255,0.15), inset 0 -2px 6px rgba(0,0,0,0.2), 0 3px 10px rgba(0,0,0,0.35)',
+                border: '1px solid rgba(255,255,255,0.1)'
+            },
+            nightSky: { 
+                name: 'Night Sky Shard', 
+                gradient: 'radial-gradient(circle at 70% 30%, rgba(255,255,255,0.04) 0%, transparent 25%), radial-gradient(circle at 20% 60%, rgba(255,255,255,0.03) 0%, transparent 20%), linear-gradient(145deg, #2a3a5a 0%, #1a2035 100%)',
+                shadow: 'inset 0 1px 2px rgba(255,255,255,0.08), inset 0 -3px 8px rgba(0,0,0,0.35), 0 4px 14px rgba(0,0,0,0.5)'
+            },
+            pressedLeather: { 
+                name: 'Pressed Leather', 
+                gradient: 'linear-gradient(155deg, #5a4a4a 0%, #352a2a 100%)',
+                shadow: 'inset 3px 3px 8px rgba(0,0,0,0.5), inset -2px -2px 4px rgba(255,255,255,0.03), 0 2px 6px rgba(0,0,0,0.3)'
+            },
+            frost: { 
+                name: 'Frost', 
+                gradient: 'linear-gradient(135deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%), linear-gradient(140deg, #5a6a7a 0%, #3a4a5a 100%)',
+                shadow: 'inset 0 0 0 1px rgba(255,255,255,0.1), inset 0 2px 3px rgba(255,255,255,0.06), inset 0 -3px 6px rgba(0,0,0,0.2), 0 4px 12px rgba(0,0,0,0.35)'
+            }
+        };
+
+        // カラフル用のグラデーション配列
+        const colorfulGradients = [
+            'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+            'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+            'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)',
+            'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
+            'linear-gradient(135deg, #30cfd0 0%, #330867 100%)',
+            'linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)',
+            'linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%)',
+            'linear-gradient(135deg, #ff6b6b 0%, #feca57 100%)',
+            'linear-gradient(135deg, #5f27cd 0%, #341f97 100%)'
+        ];
+
+        // 背景テーマ（質感重視 - 12種類）
+        const bgThemes = {
+            abyss: {
+                name: 'Abyss',
+                bg: 'radial-gradient(ellipse at 50% 0%, #1a1a2e 0%, #0d0d15 50%, #000000 100%)',
+                overlay: 'radial-gradient(ellipse at 30% 70%, rgba(20,20,40,0.3) 0%, transparent 60%)'
+            },
+            nightMist: {
+                name: 'Night Mist',
+                bg: 'linear-gradient(180deg, #1a1525 0%, #251a30 50%, #1a1525 100%)',
+                overlay: 'radial-gradient(ellipse at 50% 30%, rgba(80,60,100,0.15) 0%, transparent 70%)'
+            },
+            inkStain: {
+                name: 'Ink Dye',
+                bg: 'linear-gradient(160deg, #1a1815 0%, #252220 50%, #1a1815 100%)',
+                overlay: 'radial-gradient(ellipse at 70% 80%, rgba(40,35,30,0.4) 0%, transparent 50%)'
+            },
+            steel: {
+                name: 'Steel',
+                bg: 'linear-gradient(145deg, #1a1d22 0%, #0f1215 50%, #1a1d22 100%)',
+                overlay: 'linear-gradient(180deg, rgba(100,120,140,0.05) 0%, transparent 30%, rgba(0,0,0,0.2) 100%)'
+            },
+            deepSea: {
+                name: 'Deep Sea',
+                bg: 'linear-gradient(180deg, #0a1520 0%, #051018 50%, #020810 100%)',
+                overlay: 'radial-gradient(ellipse at 50% 100%, rgba(0,50,80,0.2) 0%, transparent 60%)'
+            },
+            burnedBrown: {
+                name: 'Scorched Brown',
+                bg: 'linear-gradient(150deg, #1f1814 0%, #15100d 50%, #1a1410 100%)',
+                overlay: 'radial-gradient(ellipse at 40% 20%, rgba(60,40,30,0.25) 0%, transparent 50%)'
+            },
+            mossGarden: {
+                name: 'Moss Garden',
+                bg: 'linear-gradient(170deg, #101a15 0%, #0a120e 50%, #0d1510 100%)',
+                overlay: 'radial-gradient(ellipse at 60% 80%, rgba(30,50,35,0.3) 0%, transparent 55%)'
+            },
+            twilight: {
+                name: 'Twilight',
+                bg: 'linear-gradient(180deg, #1a1520 0%, #201520 40%, #251a1a 100%)',
+                overlay: 'linear-gradient(180deg, rgba(80,50,60,0.1) 0%, rgba(60,40,50,0.15) 100%)'
+            },
+            moonlight: {
+                name: 'Moonlight',
+                bg: 'linear-gradient(160deg, #2a2d35 0%, #1f2228 50%, #25282f 100%)',
+                overlay: 'radial-gradient(ellipse at 70% 20%, rgba(200,210,230,0.06) 0%, transparent 50%)'
+            },
+            cherryMist: {
+                name: 'Cherry Haze',
+                bg: 'linear-gradient(165deg, #2a2428 0%, #1f1a1d 50%, #251f22 100%)',
+                overlay: 'radial-gradient(ellipse at 30% 40%, rgba(200,150,170,0.08) 0%, transparent 60%)'
+            },
+            washi: {
+                name: 'Washi Paper',
+                bg: 'linear-gradient(155deg, #3a3630 0%, #2a2622 50%, #322e28 100%)',
+                overlay: 'radial-gradient(ellipse at 50% 50%, rgba(255,250,240,0.03) 0%, transparent 70%)'
+            },
+            snowField: {
+                name: 'Snowfield',
+                bg: 'linear-gradient(170deg, #3a3d42 0%, #2d3035 50%, #353840 100%)',
+                overlay: 'radial-gradient(ellipse at 40% 30%, rgba(255,255,255,0.04) 0%, transparent 50%)'
+            },
+            // ========= 揺らぎ系（WebGLシェーダー） =========
+            shimmer: {
+                name: 'Ripple',
+                type: 'shader',
+                bg: 'linear-gradient(135deg, #2a1a3a 0%, #1a2a3a 50%, #3a2a1a 100%)',
+                overlay: 'radial-gradient(ellipse at 50% 50%, transparent 30%, rgba(0,0,0,0.25) 100%)',
+                params: { tint: [1.0, 1.0, 1.0], speed: 1.0, intensity: 0.4, saturation: 0.9, iterations: 8 }
+            },
+            deepShimmer: {
+                name: 'Deep Sea Ripple',
+                type: 'shader',
+                bg: 'linear-gradient(135deg, #0a1a3a 0%, #051530 50%, #0a253a 100%)',
+                overlay: 'radial-gradient(ellipse at 50% 50%, transparent 30%, rgba(0,0,0,0.3) 100%)',
+                params: { tint: [0.55, 0.85, 1.15], speed: 0.55, intensity: 0.35, saturation: 0.75, iterations: 7 }
+            },
+            twilightShimmer: {
+                name: 'Twilight Ripple',
+                type: 'shader',
+                bg: 'linear-gradient(135deg, #3a1a1a 0%, #3a1a2a 50%, #3a2a1a 100%)',
+                overlay: 'radial-gradient(ellipse at 50% 50%, transparent 30%, rgba(0,0,0,0.3) 100%)',
+                params: { tint: [1.3, 0.85, 0.65], speed: 0.7, intensity: 0.35, saturation: 0.9, iterations: 7 }
+            },
+            starFrost: {
+                name: 'Frosted Stars',
+                type: 'shader',
+                bg: 'linear-gradient(135deg, #1a1a2e 0%, #0f0f1f 50%, #1a2a3a 100%)',
+                overlay: 'radial-gradient(ellipse at 50% 50%, transparent 30%, rgba(0,0,0,0.3) 100%)',
+                params: { tint: [0.9, 0.9, 1.25], speed: 0.35, intensity: 0.28, saturation: 0.55, iterations: 5 }
+            },
+            inkFlow: {
+                name: 'Ink Flow',
+                type: 'shader',
+                bg: 'linear-gradient(135deg, #1a1a1a 0%, #0a0a0a 50%, #151515 100%)',
+                overlay: 'radial-gradient(ellipse at 50% 50%, transparent 30%, rgba(0,0,0,0.2) 100%)',
+                params: { tint: [0.85, 0.85, 0.9], speed: 0.5, intensity: 0.32, saturation: 0.0, iterations: 6 }
+            },
+            // ========= 水面系（流体シミュレーション） =========
+            rainDrop: {
+                name: 'Raindrop',
+                type: 'water',
+                bg: 'linear-gradient(180deg, #050810 0%, #0a1020 50%, #030610 100%)',
+                overlay: 'radial-gradient(ellipse at 55% 70%, rgba(30,50,80,0.15) 0%, transparent 60%)',
+                params: { rainInterval: 0.14, strengthMin: 0.02, strengthRange: 0.06, radiusMin: 0.006, radiusRange: 0.012 }
+            }
+        };
+
+        const grid = document.getElementById('grid');
+        const emptyState = document.getElementById('emptyState');
+        const swipeContainer = document.getElementById('swipeContainer');
+        const tabBar = document.getElementById('tabBar');
+        const modal = document.getElementById('modal');
+        const memoInput = document.getElementById('memoInput');
+        const titleInput = document.getElementById('titleInput');
+        const charCountOuter = document.getElementById('charCountOuter');
+        const addBtn = document.getElementById('addBtn');
+        const doneBtn = document.getElementById('doneBtn');
+        const saveBtn = document.getElementById('saveBtn');
+        const closeBtn = document.getElementById('closeBtn');
+        const favoriteBtn = document.getElementById('favoriteBtn');
+        const menuBtn = document.getElementById('menuBtn');
+        const menuDropdown = document.getElementById('menuDropdown');
+        const columnMinusBtn = document.getElementById('columnMinusBtn');
+        const columnPlusBtn = document.getElementById('columnPlusBtn');
+        const columnValue = document.getElementById('columnValue');
+        const fontsizeBtn = document.getElementById('fontsizeBtn');
+        const sortBtn = document.getElementById('sortBtn');
+        const trashBtn = document.getElementById('trashBtn');
+        const exportBtn = document.getElementById('exportBtn');
+        const importBtn = document.getElementById('importBtn');
+        const fileInput = document.getElementById('fileInput');
+        const trashModal = document.getElementById('trashModal');
+        const trashList = document.getElementById('trashList');
+        const trashClearBtn = document.getElementById('trashClearBtn');
+        const trashCloseBtn = document.getElementById('trashCloseBtn');
+        const fontsizeModal = document.getElementById('fontsizeModal');
+        const fontsizeSlider = document.getElementById('fontsizeSlider');
+        const fontsizePreview = document.getElementById('fontsizePreview');
+        const fontsizeCloseBtn = document.getElementById('fontsizeCloseBtn');
+        const folderModal = document.getElementById('folderModal');
+        const folderModalTitle = document.getElementById('folderModalTitle');
+        const folderInput = document.getElementById('folderInput');
+        const folderSaveBtn = document.getElementById('folderSaveBtn');
+        const folderCancelBtn = document.getElementById('folderCancelBtn');
+        const folderDeleteBtn = document.getElementById('folderDeleteBtn');
+        const tileThemeBtn = document.getElementById('tileThemeBtn');
+        const tileThemeModal = document.getElementById('tileThemeModal');
+        const themeGrid = document.getElementById('themeGrid');
+        const tileThemeCloseBtn = document.getElementById('tileThemeCloseBtn');
+        const themeTabBasic = document.getElementById('themeTabBasic');
+        const themeTabTexture = document.getElementById('themeTabTexture');
+        const bgThemeBtn = document.getElementById('bgThemeBtn');
+        const bgThemeModal = document.getElementById('bgThemeModal');
+        const bgThemeGrid = document.getElementById('bgThemeGrid');
+        const bgThemeCloseBtn = document.getElementById('bgThemeCloseBtn');
+        const bgOverlay = document.getElementById('bgOverlay');
+        let currentThemePage = 'basic'; // 'basic' or 'texture'
+        const helloBtn = document.getElementById('helloBtn');
+        const helloOverlay = document.getElementById('helloOverlay');
+        const searchBtn = document.getElementById('searchBtn');
+        const searchModal = document.getElementById('searchModal');
+        const searchInput = document.getElementById('searchInput');
+        const actionBar = document.getElementById('actionBar');
+        const moveBtn = document.getElementById('moveBtn');
+        const bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
+        const pasteBar = document.getElementById('pasteBar');
+        const pasteBtn = document.getElementById('pasteBtn');
+        const pasteCancelBtn = document.getElementById('pasteCancelBtn');
+        const searchResults = document.getElementById('searchResults');
+        const searchCloseBtn = document.getElementById('searchCloseBtn');
+        const thumbnailSizeBtn = document.getElementById('thumbnailSizeBtn');
+        const thumbnailModal = document.getElementById('thumbnailModal');
+        const thumbnailSlider = document.getElementById('thumbnailSlider');
+        const thumbnailValue = document.getElementById('thumbnailValue');
+        const thumbnailPreviewText = document.getElementById('thumbnailPreviewText');
+        const thumbnailPreviewTile = document.getElementById('thumbnailPreviewTile');
+        const thumbnailCloseBtn = document.getElementById('thumbnailCloseBtn');
+        const settingsBtn = document.getElementById('settingsBtn');
+        const settingsModal = document.getElementById('settingsModal');
+        const settingsCloseBtn = document.getElementById('settingsCloseBtn');
+        const perFolderColumnCheck = document.getElementById('perFolderColumnCheck');
+        const perFolderThemeCheck = document.getElementById('perFolderThemeCheck');
+        const fontMincho = document.getElementById('fontMincho');
+        const fontGothic = document.getElementById('fontGothic');
+
+        // 背景テーマを適用
+        // ========= WebGL 揺らぎ背景エンジン =========
+        const shaderCanvas = document.getElementById('bgShaderCanvas');
+        let shaderGL = null;
+        let shaderProgram = null;
+        let shaderStartTime = null;
+        let shaderAnimationId = null;
+        let shaderUniforms = {};
+
+        const SHADER_VS = 'attribute vec2 p; void main(){ gl_Position=vec4(p,0,1); }';
+
+        const SHADER_FS = [
+            'precision highp float;',
+            'uniform float t;',
+            'uniform vec2 r;',
+            'uniform vec3 tint;',
+            'uniform float speed;',
+            'uniform float intensity;',
+            'uniform float saturation;',
+            'uniform float iterations;',
+            'void main() {',
+            '  vec2 uv = (gl_FragCoord.xy * 2.0 - r) / min(r.x, r.y);',
+            '  vec3 col = vec3(0.0);',
+            '  float zoom = 1.0 + dot(uv, uv) * 0.3;',
+            '  vec3 p = vec3(uv * zoom, 0.0);',
+            '  for(float i=1.0; i<12.0; i++) {',
+            '    if (i > iterations) break;',
+            '    p.z += t * speed * 0.15;',
+            '    p.xy = vec2(',
+            '      sin(p.x + p.z) - cos(p.y - p.z),',
+            '      cos(p.x - p.z) + sin(p.y + p.z)',
+            '    ) * 0.8;',
+            '    float density = 0.05 / length(mod(p.xy + 0.5, 1.0) - 0.5);',
+            '    vec3 layerCol = vec3(',
+            '      sin(i + t * speed) * 0.5 + 0.5,',
+            '      cos(i * 1.5 - t * speed) * 0.5 + 0.5,',
+            '      sin(i * 0.7 + t * speed) * 0.8 + 0.2',
+            '    );',
+            '    col += layerCol * density * (1.0 / i);',
+            '  }',
+            '  col = smoothstep(0.0, 1.0, col * intensity);',
+            '  float luma = dot(col, vec3(0.3, 0.59, 0.11));',
+            '  col = mix(vec3(luma), col, saturation);',
+            '  col *= tint;',
+            '  gl_FragColor = vec4(col, 1.0);',
+            '}'
+        ].join('\n');
+
+        function initShader() {
+            if (shaderGL) return true;
+            shaderGL = shaderCanvas.getContext('webgl') || shaderCanvas.getContext('experimental-webgl');
+            if (!shaderGL) return false;
+
+            const gl = shaderGL;
+            const program = gl.createProgram();
+            [SHADER_VS, SHADER_FS].forEach((src, i) => {
+                const shader = gl.createShader(i ? gl.FRAGMENT_SHADER : gl.VERTEX_SHADER);
+                gl.shaderSource(shader, src);
+                gl.compileShader(shader);
+                gl.attachShader(program, shader);
+            });
+            gl.linkProgram(program);
+            gl.useProgram(program);
+
+            const buffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,1,1]), gl.STATIC_DRAW);
+            const pos = gl.getAttribLocation(program, 'p');
+            gl.enableVertexAttribArray(pos);
+            gl.vertexAttribPointer(pos, 2, gl.FLOAT, false, 0, 0);
+
+            shaderProgram = program;
+            shaderUniforms = {
+                t: gl.getUniformLocation(program, 't'),
+                r: gl.getUniformLocation(program, 'r'),
+                tint: gl.getUniformLocation(program, 'tint'),
+                speed: gl.getUniformLocation(program, 'speed'),
+                intensity: gl.getUniformLocation(program, 'intensity'),
+                saturation: gl.getUniformLocation(program, 'saturation'),
+                iterations: gl.getUniformLocation(program, 'iterations')
+            };
+            return true;
+        }
+
+        function resizeShaderCanvas() {
+            if (!shaderGL) return;
+            // 解像度を0.6倍に抑えて省エネ（視覚上は十分）
+            const scale = 0.6;
+            const w = Math.max(1, Math.floor(window.innerWidth * scale));
+            const h = Math.max(1, Math.floor(window.innerHeight * scale));
+            if (shaderCanvas.width !== w || shaderCanvas.height !== h) {
+                shaderCanvas.width = w;
+                shaderCanvas.height = h;
+                shaderGL.viewport(0, 0, w, h);
+            }
+        }
+
+        function startShader(theme) {
+            if (!initShader()) return;
+            stopShader();
+            resizeShaderCanvas();
+            shaderCanvas.style.display = 'block';
+            if (shaderStartTime === null) shaderStartTime = performance.now();
+
+            const gl = shaderGL;
+            const params = theme.params;
+
+            function frame(now) {
+                resizeShaderCanvas();
+                const t = (now - shaderStartTime) * 0.001;
+                gl.uniform1f(shaderUniforms.t, t);
+                gl.uniform2f(shaderUniforms.r, shaderCanvas.width, shaderCanvas.height);
+                gl.uniform3f(shaderUniforms.tint, params.tint[0], params.tint[1], params.tint[2]);
+                gl.uniform1f(shaderUniforms.speed, params.speed);
+                gl.uniform1f(shaderUniforms.intensity, params.intensity);
+                gl.uniform1f(shaderUniforms.saturation, params.saturation);
+                gl.uniform1f(shaderUniforms.iterations, params.iterations);
+                gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+                shaderAnimationId = requestAnimationFrame(frame);
+            }
+            shaderAnimationId = requestAnimationFrame(frame);
+        }
+
+        function stopShader() {
+            if (shaderAnimationId !== null) {
+                cancelAnimationFrame(shaderAnimationId);
+                shaderAnimationId = null;
+            }
+            shaderCanvas.style.display = 'none';
+        }
+
+        window.addEventListener('resize', resizeShaderCanvas);
+
+        // ========= 水面（雨だれ）流体シミュレーションエンジン =========
+        const waterEngine = (function() {
+            let canvas, gl;
+            let dpr, W, H, simW, simH;
+            const SIM_SCALE = 0.5;
+            let simProg, dropProg, renderProg;
+            let buf;
+            let fbos = [];
+            let curFBO = 0;
+            let touches = [];
+            let rainTimer = 0;
+            let startTime;
+            let rafId = null;
+            let initialized = false;
+            let themeParams = null;
+
+            const VERT = [
+                'attribute vec2 a_pos;',
+                'varying vec2 v_uv;',
+                'void main(){',
+                '  v_uv = a_pos * 0.5 + 0.5;',
+                '  gl_Position = vec4(a_pos, 0, 1);',
+                '}'
+            ].join('\n');
+
+            const SIMULATE_FRAG = [
+                'precision highp float;',
+                'varying vec2 v_uv;',
+                'uniform sampler2D u_state;',
+                'uniform vec2 u_texel;',
+                'uniform float u_damping;',
+                'void main(){',
+                '  vec2 s = texture2D(u_state, v_uv).rg;',
+                '  float h = s.r; float v = s.g;',
+                '  float hL = texture2D(u_state, v_uv + vec2(-u_texel.x, 0)).r;',
+                '  float hR = texture2D(u_state, v_uv + vec2( u_texel.x, 0)).r;',
+                '  float hU = texture2D(u_state, v_uv + vec2(0,  u_texel.y)).r;',
+                '  float hD = texture2D(u_state, v_uv + vec2(0, -u_texel.y)).r;',
+                '  float laplacian = (hL + hR + hU + hD) - 4.0 * h;',
+                '  float c = 0.45;',
+                '  v += laplacian * c * c;',
+                '  v *= u_damping; h += v;',
+                '  float edgeDist = min(min(v_uv.x, 1.0 - v_uv.x), min(v_uv.y, 1.0 - v_uv.y));',
+                '  float edgeDamp = smoothstep(0.0, 0.05, edgeDist);',
+                '  h *= edgeDamp; v *= edgeDamp;',
+                '  gl_FragColor = vec4(h, v, 0, 1);',
+                '}'
+            ].join('\n');
+
+            const DROP_FRAG = [
+                'precision highp float;',
+                'varying vec2 v_uv;',
+                'uniform sampler2D u_state;',
+                'uniform vec2 u_drop;',
+                'uniform float u_radius;',
+                'uniform float u_strength;',
+                'uniform int u_active;',
+                'void main(){',
+                '  vec2 s = texture2D(u_state, v_uv).rg;',
+                '  if(u_active == 1){',
+                '    float d = length(v_uv - u_drop);',
+                '    float effect = exp(-d * d / (u_radius * u_radius)) * u_strength;',
+                '    s.r += effect;',
+                '  }',
+                '  gl_FragColor = vec4(s, 0, 1);',
+                '}'
+            ].join('\n');
+
+            const RENDER_FRAG = [
+                'precision highp float;',
+                'varying vec2 v_uv;',
+                'uniform sampler2D u_state;',
+                'uniform vec2 u_texel;',
+                'uniform float u_time;',
+                'uniform vec2 u_res;',
+                'vec3 mod289(vec3 x){return x-floor(x/289.0)*289.0;}',
+                'vec2 mod289(vec2 x){return x-floor(x/289.0)*289.0;}',
+                'vec3 permute(vec3 x){return mod289((x*34.0+1.0)*x);}',
+                'float snoise(vec2 v){',
+                '  const vec4 C=vec4(0.211324865405187,0.366025403784439,-0.577350269189626,0.024390243902439);',
+                '  vec2 i=floor(v+dot(v,C.yy));vec2 x0=v-i+dot(i,C.xx);',
+                '  vec2 i1=(x0.x>x0.y)?vec2(1,0):vec2(0,1);',
+                '  vec4 x12=x0.xyxy+C.xxzz;x12.xy-=i1;i=mod289(i);',
+                '  vec3 p=permute(permute(i.y+vec3(0,i1.y,1))+i.x+vec3(0,i1.x,1));',
+                '  vec3 m=max(0.5-vec3(dot(x0,x0),dot(x12.xy,x12.xy),dot(x12.zw,x12.zw)),0.0);',
+                '  m=m*m;m=m*m;',
+                '  vec3 x=2.0*fract(p*C.www)-1.0;vec3 h=abs(x)-0.5;',
+                '  vec3 ox=floor(x+0.5);vec3 a0=x-ox;',
+                '  m*=1.79284291400159-0.85373472095314*(a0*a0+h*h);',
+                '  vec3 g;g.x=a0.x*x0.x+h.x*x0.y;g.yz=a0.yz*x12.xz+h.yz*x12.yw;',
+                '  return 130.0*dot(m,g);',
+                '}',
+                'void main(){',
+                '  float asp = u_res.x / u_res.y;',
+                '  vec2 p = vec2(v_uv.x * asp, v_uv.y);',
+                '  float t = u_time;',
+                '  float h = texture2D(u_state, v_uv).r;',
+                '  float hL = texture2D(u_state, v_uv + vec2(-u_texel.x, 0)).r;',
+                '  float hR = texture2D(u_state, v_uv + vec2( u_texel.x, 0)).r;',
+                '  float hU = texture2D(u_state, v_uv + vec2(0,  u_texel.y)).r;',
+                '  float hD = texture2D(u_state, v_uv + vec2(0, -u_texel.y)).r;',
+                '  vec3 simN = normalize(vec3((hL - hR) * 20.0, (hD - hU) * 20.0, 1.0));',
+                '  float w1 = snoise(p * 4.0 + t * 0.08) * 0.003;',
+                '  float w2 = snoise(p * 7.0 - t * 0.06 + vec2(10.0)) * 0.0015;',
+                '  float w3 = snoise(p * 12.0 + t * 0.1 + vec2(5.0, 15.0)) * 0.0008;',
+                '  float ambientH = w1 + w2 + w3;',
+                '  float eps = 0.008;',
+                '  float aNx = (snoise((p + vec2(eps, 0)) * 4.0 + t * 0.08) - snoise((p - vec2(eps, 0)) * 4.0 + t * 0.08)) * 0.003;',
+                '  float aNy = (snoise((p + vec2(0, eps)) * 4.0 + t * 0.08) - snoise((p - vec2(0, eps)) * 4.0 + t * 0.08)) * 0.003;',
+                '  vec3 ambientN = normalize(vec3(aNx * 6.0, aNy * 6.0, 1.0));',
+                '  float activity = clamp((abs(h) + abs(hL-hR) + abs(hU-hD)) * 40.0, 0.0, 1.0);',
+                '  vec3 normal = normalize(mix(ambientN, simN, activity));',
+                '  float depthVar = snoise(p * 1.5 + t * 0.01) * 0.5 + 0.5;',
+                '  vec3 waterColor = mix(vec3(0.012, 0.028, 0.05), vec3(0.018, 0.038, 0.06), depthVar * 0.4);',
+                '  vec2 moonPos = vec2(asp * 0.55, 0.72);',
+                '  vec2 toMoon = p - moonPos;',
+                '  float moonReflect = exp(-toMoon.x * toMoon.x * 14.0 - toMoon.y * toMoon.y * 2.5);',
+                '  moonReflect *= 0.75 + 0.25 * snoise(p * 5.0 + normal.xy * 3.0 + t * 0.04);',
+                '  vec3 moonColor = vec3(0.07, 0.09, 0.13) * moonReflect;',
+                '  float moonSpec = pow(max(0.0, dot(normal, normalize(vec3(-toMoon * 0.3, 1.0)))), 50.0);',
+                '  float moonGlint = pow(max(0.0, dot(normal, normalize(vec3(-toMoon * 0.3, 1.0)))), 180.0);',
+                '  vec3 lightDir = normalize(vec3(0.15, 0.2, 1.0));',
+                '  float softSpec = pow(max(0.0, dot(normal, lightDir)), 8.0);',
+                '  float sharpSpec = pow(max(0.0, dot(normal, lightDir)), 50.0);',
+                '  float fresnel = pow(1.0 - abs(normal.z), 4.0);',
+                '  vec3 color = waterColor;',
+                '  color += moonColor;',
+                '  color += vec3(0.14, 0.17, 0.22) * moonSpec * moonReflect * 2.0;',
+                '  color += vec3(0.35, 0.4, 0.45) * moonGlint * moonReflect;',
+                '  color += vec3(0.018, 0.025, 0.035) * softSpec;',
+                '  color += vec3(0.06, 0.08, 0.1) * sharpSpec * 0.3;',
+                '  color += vec3(0.01, 0.015, 0.025) * fresnel;',
+                '  float edgeLight = (abs(hL - hR) + abs(hU - hD));',
+                '  color += vec3(0.2, 0.25, 0.32) * edgeLight * 12.0;',
+                '  float crest = max(0.0, h);',
+                '  color += vec3(0.08, 0.12, 0.16) * min(crest * 25.0, 1.0) * 0.5;',
+                '  float trough = max(0.0, -h);',
+                '  color -= vec3(0.008, 0.012, 0.016) * min(trough * 20.0, 1.0);',
+                '  float curvature = abs(hL - 2.0*h + hR) + abs(hU - 2.0*h + hD);',
+                '  color += vec3(0.1, 0.14, 0.2) * curvature * 18.0 * activity;',
+                '  gl_FragColor = vec4(max(color, 0.0), 1.0);',
+                '}'
+            ].join('\n');
+
+            function createShader(type, src) {
+                const s = gl.createShader(type);
+                gl.shaderSource(s, src);
+                gl.compileShader(s);
+                return s;
+            }
+
+            function createProgram(fSrc) {
+                const p = gl.createProgram();
+                gl.attachShader(p, createShader(gl.VERTEX_SHADER, VERT));
+                gl.attachShader(p, createShader(gl.FRAGMENT_SHADER, fSrc));
+                gl.linkProgram(p);
+                return p;
+            }
+
+            function useProg(prog) {
+                gl.useProgram(prog);
+                const a = gl.getAttribLocation(prog, 'a_pos');
+                gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+                gl.enableVertexAttribArray(a);
+                gl.vertexAttribPointer(a, 2, gl.FLOAT, false, 0, 0);
+                return prog;
+            }
+
+            function createSimFBO() {
+                const extFloat = gl.getExtension('OES_texture_float');
+                const tex = gl.createTexture();
+                gl.bindTexture(gl.TEXTURE_2D, tex);
+                if (extFloat) {
+                    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, simW, simH, 0, gl.RGBA, gl.FLOAT, null);
+                } else {
+                    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, simW, simH, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+                }
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+                const fb = gl.createFramebuffer();
+                gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+                gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+                return { tex, fb };
+            }
+
+            function initFBOs() {
+                fbos = [createSimFBO(), createSimFBO()];
+                curFBO = 0;
+                for (let i = 0; i < 2; i++) {
+                    gl.bindFramebuffer(gl.FRAMEBUFFER, fbos[i].fb);
+                    gl.viewport(0, 0, simW, simH);
+                    gl.clearColor(0, 0, 0, 1);
+                    gl.clear(gl.COLOR_BUFFER_BIT);
+                }
+            }
+
+            function resize() {
+                if (!gl) return;
+                W = Math.round(window.innerWidth * dpr);
+                H = Math.round(window.innerHeight * dpr);
+                simW = Math.round(W * SIM_SCALE);
+                simH = Math.round(H * SIM_SCALE);
+                canvas.width = W;
+                canvas.height = H;
+                gl.viewport(0, 0, W, H);
+                initFBOs();
+            }
+
+            function init() {
+                if (initialized) return true;
+                canvas = document.getElementById('bgWaterCanvas');
+                gl = canvas.getContext('webgl', { antialias: false, preserveDrawingBuffer: false });
+                if (!gl) return false;
+                gl.getExtension('OES_texture_float');
+                gl.getExtension('OES_texture_float_linear');
+                simProg = createProgram(SIMULATE_FRAG);
+                dropProg = createProgram(DROP_FRAG);
+                renderProg = createProgram(RENDER_FRAG);
+                buf = gl.createBuffer();
+                gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,1,1]), gl.STATIC_DRAW);
+                dpr = Math.min(window.devicePixelRatio || 1, 2);
+                resize();
+                startTime = performance.now();
+                initialized = true;
+                return true;
+            }
+
+            function srcFBO() { return fbos[curFBO]; }
+            function dstFBO() { return fbos[1 - curFBO]; }
+            function swap() { curFBO = 1 - curFBO; }
+
+            function frame(now) {
+                rafId = requestAnimationFrame(frame);
+                const t = (now - startTime) * 0.001;
+
+                // 自動雨
+                rainTimer += 0.016;
+                if (rainTimer > themeParams.rainInterval) {
+                    rainTimer = 0;
+                    touches.push({
+                        x: Math.random(),
+                        y: Math.random(),
+                        strength: themeParams.strengthMin + Math.random() * themeParams.strengthRange,
+                        radius: themeParams.radiusMin + Math.random() * themeParams.radiusRange
+                    });
+                }
+
+                // drop適用
+                for (const drop of touches) {
+                    const p = useProg(dropProg);
+                    gl.activeTexture(gl.TEXTURE0);
+                    gl.bindTexture(gl.TEXTURE_2D, srcFBO().tex);
+                    gl.uniform1i(gl.getUniformLocation(p, 'u_state'), 0);
+                    gl.uniform2f(gl.getUniformLocation(p, 'u_drop'), drop.x, drop.y);
+                    gl.uniform1f(gl.getUniformLocation(p, 'u_radius'), drop.radius);
+                    gl.uniform1f(gl.getUniformLocation(p, 'u_strength'), drop.strength);
+                    gl.uniform1i(gl.getUniformLocation(p, 'u_active'), 1);
+                    gl.bindFramebuffer(gl.FRAMEBUFFER, dstFBO().fb);
+                    gl.viewport(0, 0, simW, simH);
+                    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+                    swap();
+                }
+                touches = [];
+
+                // 波の伝播
+                for (let i = 0; i < 3; i++) {
+                    const p = useProg(simProg);
+                    gl.activeTexture(gl.TEXTURE0);
+                    gl.bindTexture(gl.TEXTURE_2D, srcFBO().tex);
+                    gl.uniform1i(gl.getUniformLocation(p, 'u_state'), 0);
+                    gl.uniform2f(gl.getUniformLocation(p, 'u_texel'), 1.0/simW, 1.0/simH);
+                    gl.uniform1f(gl.getUniformLocation(p, 'u_damping'), 0.997);
+                    gl.bindFramebuffer(gl.FRAMEBUFFER, dstFBO().fb);
+                    gl.viewport(0, 0, simW, simH);
+                    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+                    swap();
+                }
+
+                // レンダリング
+                const rp = useProg(renderProg);
+                gl.activeTexture(gl.TEXTURE0);
+                gl.bindTexture(gl.TEXTURE_2D, srcFBO().tex);
+                gl.uniform1i(gl.getUniformLocation(rp, 'u_state'), 0);
+                gl.uniform2f(gl.getUniformLocation(rp, 'u_texel'), 1.0/simW, 1.0/simH);
+                gl.uniform1f(gl.getUniformLocation(rp, 'u_time'), t);
+                gl.uniform2f(gl.getUniformLocation(rp, 'u_res'), W, H);
+                gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+                gl.viewport(0, 0, W, H);
+                gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+            }
+
+            function start(theme) {
+                if (!init()) return;
+                themeParams = theme.params;
+                canvas.style.display = 'block';
+                touches = [];
+                rainTimer = 0;
+                // 水面リセット
+                for (let i = 0; i < 2; i++) {
+                    gl.bindFramebuffer(gl.FRAMEBUFFER, fbos[i].fb);
+                    gl.viewport(0, 0, simW, simH);
+                    gl.clearColor(0, 0, 0, 1);
+                    gl.clear(gl.COLOR_BUFFER_BIT);
+                }
+                if (rafId !== null) cancelAnimationFrame(rafId);
+                rafId = requestAnimationFrame(frame);
+            }
+
+            function stop() {
+                if (rafId !== null) {
+                    cancelAnimationFrame(rafId);
+                    rafId = null;
+                }
+                if (canvas) canvas.style.display = 'none';
+            }
+
+            window.addEventListener('resize', () => { if (initialized) resize(); });
+
+            return {
+                start: start,
+                stop: stop,
+                isRunning: () => rafId !== null
+            };
+        })();
+
+        function applyBgTheme() {
+            const theme = bgThemes[currentBgTheme] || bgThemes.abyss;
+            if (theme.type === 'shader') {
+                document.body.style.background = '#000';
+                bgOverlay.style.background = theme.overlay || 'transparent';
+                waterEngine.stop();
+                startShader(theme);
+            } else if (theme.type === 'water') {
+                document.body.style.background = '#000';
+                bgOverlay.style.background = theme.overlay || 'transparent';
+                stopShader();
+                waterEngine.start(theme);
+            } else {
+                stopShader();
+                waterEngine.stop();
+                document.body.style.background = theme.bg;
+                bgOverlay.style.background = theme.overlay;
+            }
+        }
+
+        // タイル透け感
+        const tileOpacitySlider = document.getElementById('tileOpacitySlider');
+        const tileOpacityValue = document.getElementById('tileOpacityValue');
+
+        function applyTileOpacity() {
+            document.documentElement.style.setProperty('--tile-opacity', currentTileOpacity);
+            if (tileOpacitySlider) tileOpacitySlider.value = currentTileOpacity;
+            if (tileOpacityValue) tileOpacityValue.textContent = Math.round(currentTileOpacity * 100) + '%';
+        }
+
+        if (tileOpacitySlider) {
+            tileOpacitySlider.addEventListener('input', (e) => {
+                currentTileOpacity = parseFloat(e.target.value);
+                localStorage.setItem('currentTileOpacity', currentTileOpacity);
+                applyTileOpacity();
+            });
+        }
+
+        // 本文プレビュー用（thumbnailFontSizeを基準に）
+        function calculateFontSize(text) {
+            const base = thumbnailFontSize;
+            const length = text.length;
+            if (length === 0) return base;
+            if (length <= 10) return base;
+            if (length <= 20) return base - 1;
+            if (length <= 40) return base - 2;
+            if (length <= 70) return base - 3;
+            if (length <= 100) return base - 4;
+            return Math.max(base - 5, 8);
+        }
+
+        // タイトル用（短いタイトルは大きく中央に）
+        function calculateTitleFontSize(text) {
+            const base = thumbnailFontSize;
+            const length = text.length;
+            if (length <= 6) return base + 8;
+            if (length <= 10) return base + 4;
+            if (length <= 15) return base + 2;
+            return null; // 長いタイトルは本文扱い
+        }
+
+        function getThemeData(themeKey) {
+            if (themes[themeKey]) {
+                return themes[themeKey];
+            }
+            if (textureThemes[themeKey]) {
+                return textureThemes[themeKey];
+            }
+            return themes.purple; // フォールバック
+        }
+
+        function getRandomGradient() {
+            const theme = getThemeData(currentTheme);
+            if (theme.isRandom) {
+                return colorfulGradients[Math.floor(Math.random() * colorfulGradients.length)];
+            }
+            return theme.gradient;
+        }
+
+        // テーマ変更時に全タイルの色を変更
+        function applyThemeToAllMemos() {
+            const theme = getThemeData(currentTheme);
+            
+            // フォルダ別テーマモードの場合、フォルダにテーマを保存
+            if (perFolderTheme) {
+                const folder = folders.find(f => f.id === currentFolderId);
+                if (folder) {
+                    folder.theme = currentTheme;
+                    localStorage.setItem('folders', JSON.stringify(folders));
+                }
+            } else {
+                // グローバルモード：currentThemeを保存（既に保存済み）
+            }
+            
+            if (theme.isRandom) {
+                // カラフル：各メモにランダムな色を割り当て
+                memos.forEach(memo => {
+                    memo.gradient = colorfulGradients[Math.floor(Math.random() * colorfulGradients.length)];
+                    memo.shadow = null;
+                    memo.tileBorder = null;
+                });
+            } else {
+                // 統一テーマ：全メモを同じ色に
+                memos.forEach(memo => {
+                    memo.gradient = theme.gradient;
+                    memo.shadow = theme.shadow || null;
+                    memo.tileBorder = theme.border || null;
+                });
+            }
+            saveCurrentFolder();
+            renderMemos();
+        }
+
+        // 現在のフォルダのテーマを取得
+        function getCurrentTheme() {
+            if (perFolderTheme) {
+                const folder = folders.find(f => f.id === currentFolderId);
+                return (folder && folder.theme) ? folder.theme : currentTheme;
+            }
+            return currentTheme;
+        }
+
+        function getColumnCount() {
+            if (perFolderColumn) {
+                const folder = folders.find(f => f.id === currentFolderId);
+                return folder && folder.columnCount ? folder.columnCount : columnCount;
+            }
+            return columnCount;
+        }
+
+        function applyColumnCount() {
+            const cols = getColumnCount();
+            grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+            columnValue.textContent = `${cols} cols`;
+            columnMinusBtn.classList.toggle('disabled', cols <= 2);
+            columnPlusBtn.classList.toggle('disabled', cols >= 5);
+        }
+
+        function applySortOrder() {
+            sortBtn.textContent = sortOrder === 'newest' ? '🔄 Sort: Newest' : '🔄 Sort: Oldest';
+        }
+
+        function applyInputFontSize() {
+            memoInput.style.fontSize = inputFontSize + 'px';
+            fontsizeSlider.value = inputFontSize;
+            fontsizePreview.style.fontSize = inputFontSize + 'px';
+        }
+
+        function applyFontType() {
+            if (fontType === 'mincho') {
+                document.body.style.fontFamily = "'Yu Mincho', 'YuMincho', 'Hiragino Mincho ProN', 'MS PMincho', serif";
+            } else {
+                document.body.style.fontFamily = "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Sans', 'Meiryo', sans-serif";
+            }
+        }
+
+        function loadCurrentFolder() {
+            const folder = folders.find(f => f.id === currentFolderId);
+            memos = folder ? folder.memos : [];
+        }
+
+        function saveCurrentFolder() {
+            const folder = folders.find(f => f.id === currentFolderId);
+            if (folder) {
+                folder.memos = memos;
+                localStorage.setItem('folders', JSON.stringify(folders));
+            }
+        }
+
+        function renderTabs() {
+            tabBar.innerHTML = '';
+            folders.forEach(folder => {
+                const tab = document.createElement('div');
+                tab.className = 'tab';
+                if (folder.id === currentFolderId) {
+                    tab.classList.add('active');
+                }
+                tab.textContent = folder.name;
+
+                // 長押しで名前変更（モバイル対応）
+                let pressTimer = null;
+                let longPressFired = false;
+
+                const cancelLongPress = () => {
+                    if (pressTimer) {
+                        clearTimeout(pressTimer);
+                        pressTimer = null;
+                    }
+                };
+
+                tab.addEventListener('touchstart', () => {
+                    longPressFired = false;
+                    cancelLongPress();
+                    pressTimer = setTimeout(() => {
+                        longPressFired = true;
+                        tab.classList.add('long-press-fired');
+                        setTimeout(() => tab.classList.remove('long-press-fired'), 350);
+                        if (navigator.vibrate) navigator.vibrate(22);
+                        editFolder(folder.id);
+                    }, 600);
+                }, { passive: true });
+
+                tab.addEventListener('touchmove', cancelLongPress, { passive: true });
+                tab.addEventListener('touchend', cancelLongPress);
+                tab.addEventListener('touchcancel', cancelLongPress);
+
+                // PC右クリックでも名前変更
+                tab.addEventListener('contextmenu', (e) => {
+                    e.preventDefault();
+                    editFolder(folder.id);
+                });
+
+                tab.onclick = () => {
+                    if (longPressFired) {
+                        longPressFired = false;
+                        return;
+                    }
+                    switchFolder(folder.id);
+                };
+
+                tabBar.appendChild(tab);
+            });
+            
+            // フォルダ追加ボタン
+            const addTabBtn = document.createElement('div');
+            addTabBtn.className = 'tab-add-btn';
+            addTabBtn.textContent = '+';
+            addTabBtn.onclick = () => addFolder();
+            tabBar.appendChild(addTabBtn);
+        }
+
+        function switchFolder(folderId) {
+            if (isAnimating) return;
+            saveCurrentFolder();
+            currentFolderId = folderId;
+            localStorage.setItem('currentFolderId', currentFolderId);
+            loadCurrentFolder();
+            applyFolderTheme(); // フォルダ別テーマを反映
+            renderTabs();
+            renderMemos();
+            applyColumnCount(); // フォルダ別列数を反映
+            scrollToActiveTab();
+        }
+
+        // フォルダ別テーマを適用
+        function applyFolderTheme() {
+            if (perFolderTheme) {
+                const folder = folders.find(f => f.id === currentFolderId);
+                if (folder && folder.theme) {
+                    currentTheme = folder.theme;
+                }
+            }
+        }
+
+        function scrollToActiveTab() {
+            const activeTab = tabBar.querySelector('.tab.active');
+            if (activeTab) {
+                activeTab.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+            }
+        }
+
+        function addFolder() {
+            folderModalMode = 'add';
+            folderModalTitle.textContent = 'Add Folder';
+            folderInput.value = '';
+            folderDeleteBtn.style.display = 'none';
+            folderModal.classList.add('active');
+        }
+
+        function editFolder(folderId) {
+            const targetId = folderId || currentFolderId;
+            const folder = folders.find(f => f.id === targetId);
+            if (folder) {
+                // 対象フォルダをアクティブに揃える（編集中の対象を明示）
+                if (targetId !== currentFolderId) {
+                    switchFolder(targetId);
+                }
+                folderModalMode = 'edit';
+                folderModalTitle.textContent = 'Rename Folder';
+                folderInput.value = folder.name;
+                folderDeleteBtn.style.display = 'block';
+                folderModal.classList.add('active');
+            }
+        }
+
+        function saveFolderName() {
+            const name = folderInput.value.trim();
+            if (!name) return;
+
+            if (folderModalMode === 'add') {
+                const newFolder = {
+                    id: 'folder_' + Date.now(),
+                    name: name,
+                    memos: []
+                };
+                folders.push(newFolder);
+            } else {
+                const folder = folders.find(f => f.id === currentFolderId);
+                if (folder) {
+                    folder.name = name;
+                }
+            }
+            
+            localStorage.setItem('folders', JSON.stringify(folders));
+            renderTabs();
+            folderModal.classList.remove('active');
+        }
+
+        function deleteFolder() {
+            if (!confirm('Permanently delete this folder and its memos?')) {
+                return;
+            }
+
+            folders = folders.filter(f => f.id !== currentFolderId);
+            localStorage.setItem('folders', JSON.stringify(folders));
+            
+            // 残りのフォルダがあれば最初のフォルダに切り替え、なければ空状態
+            if (folders.length > 0) {
+                currentFolderId = folders[0].id;
+            } else {
+                currentFolderId = null;
+                memos = [];
+            }
+            localStorage.setItem('currentFolderId', currentFolderId || '');
+            loadCurrentFolder();
+            renderTabs();
+            renderMemos();
+            folderModal.classList.remove('active');
+        }
+
+        function getSortedMemos() {
+            let sorted = sortOrder === 'newest' ? [...memos].reverse() : [...memos];
+            // お気に入りを上に
+            sorted.sort((a, b) => (b.favorite ? 1 : 0) - (a.favorite ? 1 : 0));
+            return sorted;
+        }
+
+        function enterEditMode() {
+            isEditMode = true;
+            selectedMemos = [];
+            document.querySelectorAll('.tile').forEach(tile => {
+                tile.classList.add('shaking');
+            });
+            addBtn.style.display = 'none';
+            updateActionBar();
+        }
+
+        function exitEditMode() {
+            isEditMode = false;
+            isMoveMode = false;
+            selectedMemos = [];
+            clipboardMemos = [];
+            sourceFolderId = null;
+            document.querySelectorAll('.tile').forEach(tile => {
+                tile.classList.remove('shaking');
+                tile.classList.remove('selected');
+            });
+            addBtn.style.display = 'block';
+            actionBar.classList.remove('active');
+            pasteBar.classList.remove('active');
+            doneBtn.classList.remove('active');
+            // 画面の位置をリセット
+            swipeContainer.style.transition = '';
+            swipeContainer.style.transform = '';
+            isAnimating = false;
+        }
+
+        function toggleMemoSelection(index) {
+            const idx = selectedMemos.indexOf(index);
+            if (idx === -1) {
+                selectedMemos.push(index);
+            } else {
+                selectedMemos.splice(idx, 1);
+            }
+            updateTileSelection();
+            updateActionBar();
+        }
+
+        function updateTileSelection() {
+            document.querySelectorAll('.tile').forEach((tile, i) => {
+                const memoIndex = parseInt(tile.dataset.index);
+                if (selectedMemos.includes(memoIndex)) {
+                    tile.classList.add('selected');
+                } else {
+                    tile.classList.remove('selected');
+                }
+            });
+        }
+
+        function updateActionBar() {
+            if (selectedMemos.length > 0) {
+                actionBar.classList.add('active');
+                doneBtn.classList.remove('active');
+            } else {
+                actionBar.classList.remove('active');
+                doneBtn.classList.add('active');
+            }
+        }
+
+        let sourceFolderId = null; // 移動元のフォルダID
+
+        function startMoveMode() {
+            // 移動元フォルダを記憶
+            sourceFolderId = currentFolderId;
+            
+            // 選択したメモをクリップボードにコピー
+            clipboardMemos = selectedMemos.map(idx => ({...memos[idx]}));
+            
+            // 元のフォルダから削除
+            selectedMemos.sort((a, b) => b - a).forEach(idx => {
+                memos.splice(idx, 1);
+            });
+            saveCurrentFolder();
+            
+            // 移動モードに
+            isMoveMode = true;
+            selectedMemos = [];
+            actionBar.classList.remove('active');
+            pasteBar.classList.add('active');
+            
+            renderMemos();
+            // 震えは維持
+            document.querySelectorAll('.tile').forEach(tile => {
+                tile.classList.add('shaking');
+            });
+        }
+
+        function pasteMemos() {
+            // 現在のフォルダに貼り付け
+            const targetFolder = folders.find(f => f.id === currentFolderId);
+            if (targetFolder) {
+                // 移動先フォルダのテーマを取得して適用
+                let targetThemeKey = currentTheme;
+                if (perFolderTheme && targetFolder.theme) {
+                    targetThemeKey = targetFolder.theme;
+                }
+                const targetTheme = getThemeData(targetThemeKey);
+                
+                // 各メモに移動先のテーマを適用
+                clipboardMemos.forEach(memo => {
+                    if (targetTheme.isRandom) {
+                        memo.gradient = colorfulGradients[Math.floor(Math.random() * colorfulGradients.length)];
+                        memo.shadow = null;
+                        memo.tileBorder = null;
+                    } else {
+                        memo.gradient = targetTheme.gradient;
+                        memo.shadow = targetTheme.shadow || null;
+                        memo.tileBorder = targetTheme.border || null;
+                    }
+                });
+                
+                targetFolder.memos.push(...clipboardMemos);
+                localStorage.setItem('folders', JSON.stringify(folders));
+            }
+            clipboardMemos = [];
+            sourceFolderId = null;
+            exitEditMode();
+            loadCurrentFolder(); // memosを更新
+            renderMemos();
+        }
+
+        function cancelMoveMode() {
+            // クリップボードを元のフォルダに戻す
+            if (sourceFolderId) {
+                const sourceFolder = folders.find(f => f.id === sourceFolderId);
+                if (sourceFolder) {
+                    sourceFolder.memos.push(...clipboardMemos);
+                    localStorage.setItem('folders', JSON.stringify(folders));
+                }
+            }
+            clipboardMemos = [];
+            sourceFolderId = null;
+            exitEditMode();
+            loadCurrentFolder(); // memosを更新
+            renderMemos();
+        }
+
+        function bulkDelete() {
+            if (selectedMemos.length === 0) return;
+            
+            if (!confirm(`Delete ${selectedMemos.length} memo(s)?`)) return;
+            
+            // ゴミ箱に追加
+            selectedMemos.forEach(idx => {
+                trashedMemos.push(memos[idx]);
+            });
+            localStorage.setItem('trashedMemos', JSON.stringify(trashedMemos));
+            
+            // 削除（大きいインデックスから）
+            selectedMemos.sort((a, b) => b - a).forEach(idx => {
+                memos.splice(idx, 1);
+            });
+            saveCurrentFolder();
+            
+            exitEditMode();
+            renderMemos();
+        }
+
+        function renderMemos() {
+            grid.innerHTML = '';
+            
+            if (memos.length === 0) {
+                emptyState.style.display = 'block';
+                return;
+            }
+            
+            emptyState.style.display = 'none';
+            
+            const sortedMemos = getSortedMemos();
+            sortedMemos.forEach((memo, sortedIndex) => {
+                // 元の配列のインデックスを取得（お気に入りソートを考慮）
+                const originalIndex = memos.findIndex(m => m === memo);
+                
+                const tile = document.createElement('div');
+                tile.className = 'tile';
+                if (memo.favorite) {
+                    tile.classList.add('favorite');
+                }
+                tile.dataset.index = originalIndex;
+                tile.style.background = memo.gradient;
+                
+                // 質感テーマのシャドウとボーダー、お気に入りリングを合成
+                const baseShadow = memo.shadow || '0 4px 15px rgba(0,0,0,0.3)';
+                const favoriteRing = 'inset 0 0 0 1px rgba(255, 215, 100, 0.3), 0 0 14px rgba(255, 210, 80, 0.1)';
+                if (memo.favorite) {
+                    tile.style.boxShadow = `${baseShadow}, ${favoriteRing}`;
+                } else if (memo.shadow) {
+                    tile.style.boxShadow = memo.shadow;
+                }
+                if (memo.tileBorder) {
+                    tile.style.border = memo.tileBorder;
+                }
+                
+                // ホワイト系テーマの場合は文字を黒に
+                const isLightTheme = memo.gradient && memo.gradient.includes('#e0e0e0');
+                if (isLightTheme) {
+                    tile.style.color = '#333';
+                }
+                
+                const content = document.createElement('div');
+                content.className = 'tile-content';
+                
+                // 全タイル共通：タイトルエリア + HR + 本文エリア
+                const titleArea = document.createElement('div');
+                titleArea.className = 'tile-title-area';
+                
+                if (memo.title) {
+                    const titleText = document.createElement('span');
+                    titleText.className = 'tile-title-text';
+                    titleText.textContent = memo.title;
+                    titleText.style.textShadow = '0 0 6px rgba(255,255,255,0.6), 0 1px 3px rgba(0,0,0,0.4)';
+                    titleArea.appendChild(titleText);
+                    
+                    // 長いタイトルは自動スクロール
+                    setTimeout(() => {
+                        if (titleText.scrollWidth > titleArea.clientWidth) {
+                            titleText.classList.add('scrolling');
+                        }
+                    }, 100);
+                }
+                
+                const hr = document.createElement('div');
+                hr.className = 'tile-hr';
+                
+                const bodyArea = document.createElement('div');
+                bodyArea.className = 'tile-body-area';
+                bodyArea.textContent = memo.text;
+                bodyArea.style.fontSize = calculateFontSize(memo.text) + 'px';
+                
+                content.appendChild(titleArea);
+                content.appendChild(hr);
+                content.appendChild(bodyArea);
+                
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'delete-btn';
+                deleteBtn.innerHTML = '×';
+                deleteBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    deleteMemo(originalIndex);
+                };
+                
+                const copyBtn = document.createElement('button');
+                copyBtn.className = 'copy-btn';
+                copyBtn.innerHTML = '⧉';
+                copyBtn.onclick = async (e) => {
+                    e.stopPropagation();
+                    // タイトルと本文両方コピー
+                    const copyText = memo.title ? memo.title + '\n\n' + memo.text : memo.text;
+                    try {
+                        await navigator.clipboard.writeText(copyText);
+                        copyBtn.classList.add('copied');
+                        copyBtn.innerHTML = '✓';
+                        setTimeout(() => {
+                            copyBtn.classList.remove('copied');
+                            copyBtn.innerHTML = '⧉';
+                        }, 600);
+                    } catch (err) {
+                        alert('Copy failed');
+                    }
+                };
+                
+                tile.appendChild(content);
+                tile.appendChild(deleteBtn);
+                tile.appendChild(copyBtn);
+                
+                // 長押しで編集モード
+                tile.addEventListener('touchstart', (e) => {
+                    if (!isEditMode) {
+                        longPressTimer = setTimeout(() => {
+                            enterEditMode();
+                        }, 500);
+                    } else {
+                        // 編集モード中はドラッグ開始
+                        draggingMemoIndex = originalIndex;
+                        dragStartY = e.touches[0].clientY;
+                        tile.classList.add('dragging');
+                    }
+                });
+
+                tile.addEventListener('touchend', (e) => {
+                    clearTimeout(longPressTimer);
+                    
+                    if (draggingMemoIndex !== null) {
+                        tile.classList.remove('dragging');
+                        draggingMemoIndex = null;
+                        
+                        // すべてのタブからdrag-overを削除
+                        document.querySelectorAll('.tab').forEach(t => {
+                            t.classList.remove('drag-over');
+                        });
+                    }
+                });
+
+                tile.addEventListener('touchmove', (e) => {
+                    clearTimeout(longPressTimer);
+                    
+                    if (draggingMemoIndex !== null) {
+                        const touch = e.touches[0];
+                        const element = document.elementFromPoint(touch.clientX, touch.clientY);
+                        
+                        // すべてのタブからdrag-overを削除
+                        document.querySelectorAll('.tab').forEach(t => {
+                            t.classList.remove('drag-over');
+                        });
+                        
+                        // タブの上にいるかチェック
+                        if (element && element.classList.contains('tab')) {
+                            element.classList.add('drag-over');
+                            
+                            // タブから手を離したときの処理
+                            const handleDrop = () => {
+                                const targetTab = element;
+                                const targetFolder = folders.find(f => f.name === targetTab.textContent);
+                                
+                                if (targetFolder && targetFolder.id !== currentFolderId) {
+                                    // メモを移動
+                                    const memo = memos[draggingMemoIndex];
+                                    targetFolder.memos.push(memo);
+                                    memos.splice(draggingMemoIndex, 1);
+                                    
+                                    saveCurrentFolder();
+                                    localStorage.setItem('folders', JSON.stringify(folders));
+                                    renderMemos();
+                                }
+                                
+                                tile.removeEventListener('touchend', handleDrop);
+                            };
+                            
+                            tile.addEventListener('touchend', handleDrop, { once: true });
+                        }
+                    }
+                });
+
+                // クリックで編集 or 選択
+                tile.onclick = (e) => {
+                    if (e.target.classList.contains('delete-btn') || e.target.classList.contains('copy-btn')) {
+                        return;
+                    }
+                    
+                    if (isEditMode && !isMoveMode) {
+                        // 編集モード中は選択トグル
+                        toggleMemoSelection(originalIndex);
+                    } else if (!isEditMode && !isMoveMode) {
+                        // 通常モードは編集
+                        editMemo(originalIndex);
+                    }
+                };
+                
+                grid.appendChild(tile);
+            });
+        }
+
+        function openModal(index = null) {
+            editingIndex = index;
+            if (index !== null) {
+                memoInput.value = memos[index].text;
+                titleInput.value = memos[index].title || '';
+                // お気に入り状態を反映
+                if (memos[index].favorite) {
+                    favoriteBtn.classList.add('active');
+                    favoriteBtn.textContent = '★';
+                } else {
+                    favoriteBtn.classList.remove('active');
+                    favoriteBtn.textContent = '☆';
+                }
+            } else {
+                memoInput.value = '';
+                titleInput.value = '';
+                favoriteBtn.classList.remove('active');
+                favoriteBtn.textContent = '☆';
+            }
+            updateCharCount();
+            modal.classList.add('active');
+            // 新規作成の時だけフォーカス（書きたくて開いてるから）
+            // 既存メモを開いた時は「読むモード」—タップで自然に編集に入る
+            if (index === null) {
+                setTimeout(() => {
+                    memoInput.focus();
+                    const len = memoInput.value.length;
+                    memoInput.setSelectionRange(len, len);
+                }, 320);
+            }
+        }
+
+        function closeModal() {
+            modal.classList.remove('active');
+            editingIndex = null;
+            memoInput.value = '';
+            titleInput.value = '';
+            favoriteBtn.classList.remove('active');
+            favoriteBtn.textContent = '☆';
+        }
+
+        // キャンセル以外で閉じる時は自動保存
+        function closeWithSave() {
+            saveMemo();
+        }
+
+        function saveMemo() {
+            const text = memoInput.value.trim();
+            const title = titleInput.value.trim();
+            const isFavorite = favoriteBtn.classList.contains('active');
+            if (!text && !title) {
+                closeModal();
+                return;
+            }
+
+            // フォルダがない場合は自動作成
+            if (folders.length === 0 || !currentFolderId) {
+                const newFolder = {
+                    id: 'folder_' + Date.now(),
+                    name: 'Memo',
+                    memos: []
+                };
+                folders.push(newFolder);
+                currentFolderId = newFolder.id;
+                localStorage.setItem('folders', JSON.stringify(folders));
+                localStorage.setItem('currentFolderId', currentFolderId);
+                memos = newFolder.memos;
+                renderTabs();
+            }
+
+            if (editingIndex !== null) {
+                memos[editingIndex].text = text;
+                memos[editingIndex].title = title;
+                memos[editingIndex].favorite = isFavorite;
+            } else {
+                const theme = getThemeData(currentTheme);
+                memos.push({
+                    text: text,
+                    title: title,
+                    favorite: isFavorite,
+                    gradient: getRandomGradient(),
+                    shadow: theme.shadow || null,
+                    tileBorder: theme.border || null
+                });
+            }
+
+            saveCurrentFolder();
+            renderMemos();
+            closeModal();
+        }
+
+        function editMemo(index) {
+            openModal(index);
+        }
+
+        function deleteMemo(index) {
+            trashedMemos.push(memos[index]);
+            memos.splice(index, 1);
+            saveCurrentFolder();
+            localStorage.setItem('trashedMemos', JSON.stringify(trashedMemos));
+            renderMemos();
+        }
+
+        function updateCharCount() {
+            charCountOuter.textContent = memoInput.value.length;
+        }
+
+        function renderTileThemes() {
+            themeGrid.innerHTML = '';
+            
+            if (currentThemePage === 'basic') {
+                // ベーシックテーマ
+                Object.keys(themes).forEach(themeKey => {
+                    const theme = themes[themeKey];
+                    const item = document.createElement('div');
+                    item.className = 'theme-item';
+                    if (themeKey === currentTheme) {
+                        item.classList.add('selected');
+                    }
+                    // カラフルの場合は複数色で表示
+                    if (theme.isRandom) {
+                        item.style.background = 'linear-gradient(135deg, #667eea 0%, #f093fb 25%, #43e97b 50%, #fa709a 75%, #4facfe 100%)';
+                    } else {
+                        item.style.background = theme.gradient;
+                    }
+                    // ホワイト系は文字を黒に
+                    if (theme.darkText) {
+                        item.style.color = '#333';
+                    }
+                    item.textContent = theme.name;
+                    item.onclick = () => {
+                        currentTheme = themeKey;
+                        localStorage.setItem('currentTheme', currentTheme);
+                        applyThemeToAllMemos();
+                        renderTileThemes();
+                    };
+                    themeGrid.appendChild(item);
+                });
+            } else {
+                // 質感テーマ
+                Object.keys(textureThemes).forEach(themeKey => {
+                    const theme = textureThemes[themeKey];
+                    const item = document.createElement('div');
+                    item.className = 'theme-item';
+                    if (themeKey === currentTheme) {
+                        item.classList.add('selected');
+                    }
+                    item.style.background = theme.gradient;
+                    if (theme.shadow) {
+                        item.style.boxShadow = theme.shadow;
+                    }
+                    if (theme.border) {
+                        item.style.border = theme.border;
+                    }
+                    item.textContent = theme.name;
+                    item.onclick = () => {
+                        currentTheme = themeKey;
+                        localStorage.setItem('currentTheme', currentTheme);
+                        applyThemeToAllMemos();
+                        renderTileThemes();
+                    };
+                    themeGrid.appendChild(item);
+                });
+            }
+            
+            // タブの状態更新
+            themeTabBasic.classList.toggle('active', currentThemePage === 'basic');
+            themeTabTexture.classList.toggle('active', currentThemePage === 'texture');
+        }
+
+        // 背景テーマ描画
+        function renderBgThemes() {
+            bgThemeGrid.innerHTML = '';
+            
+            Object.keys(bgThemes).forEach(themeKey => {
+                const theme = bgThemes[themeKey];
+                const item = document.createElement('div');
+                item.className = 'bg-theme-item';
+                if (theme.type === 'shader') {
+                    item.classList.add('is-shader');
+                } else if (theme.type === 'water') {
+                    item.classList.add('is-water');
+                }
+                if (themeKey === currentBgTheme) {
+                    item.classList.add('selected');
+                }
+                item.style.background = theme.bg;
+                
+                // オーバーレイ効果
+                const overlay = document.createElement('div');
+                overlay.style.cssText = `
+                    position: absolute;
+                    top: 0; left: 0; right: 0; bottom: 0;
+                    background: ${theme.overlay};
+                    border-radius: 9px;
+                    pointer-events: none;
+                `;
+                item.appendChild(overlay);
+                
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'theme-name';
+                nameSpan.textContent = theme.name;
+                item.appendChild(nameSpan);
+                
+                item.onclick = () => {
+                    currentBgTheme = themeKey;
+                    localStorage.setItem('currentBgTheme', currentBgTheme);
+                    applyBgTheme();
+                    renderBgThemes();
+                };
+                bgThemeGrid.appendChild(item);
+            });
+        }
+
+        // テーマタブ切り替え
+        themeTabBasic.onclick = () => {
+            currentThemePage = 'basic';
+            renderTileThemes();
+        };
+
+        themeTabTexture.onclick = () => {
+            currentThemePage = 'texture';
+            renderTileThemes();
+        };
+
+        // 検索機能
+        // 検索結果用のタイル要素を生成（メモ一覧タイルと同じ見た目）
+        function createSearchTile(memo) {
+            const tile = document.createElement('div');
+            tile.className = 'tile search-tile';
+            if (memo.favorite) {
+                tile.classList.add('favorite');
+            }
+            tile.style.background = memo.gradient || 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+
+            const baseShadow = memo.shadow || '0 4px 15px rgba(0,0,0,0.3)';
+            const favoriteRing = 'inset 0 0 0 1px rgba(255, 215, 100, 0.3), 0 0 14px rgba(255, 210, 80, 0.1)';
+            if (memo.favorite) {
+                tile.style.boxShadow = `${baseShadow}, ${favoriteRing}`;
+            } else if (memo.shadow) {
+                tile.style.boxShadow = memo.shadow;
+            }
+            if (memo.tileBorder) {
+                tile.style.border = memo.tileBorder;
+            }
+
+            const isLightTheme = memo.gradient && memo.gradient.includes('#e0e0e0');
+            if (isLightTheme) {
+                tile.style.color = '#333';
+            }
+
+            const content = document.createElement('div');
+            content.className = 'tile-content';
+
+            const titleArea = document.createElement('div');
+            titleArea.className = 'tile-title-area';
+            if (memo.title) {
+                const titleText = document.createElement('span');
+                titleText.className = 'tile-title-text';
+                titleText.textContent = memo.title;
+                titleText.style.textShadow = '0 0 6px rgba(255,255,255,0.6), 0 1px 3px rgba(0,0,0,0.4)';
+                titleArea.appendChild(titleText);
+            }
+
+            const hr = document.createElement('div');
+            hr.className = 'tile-hr';
+
+            const bodyArea = document.createElement('div');
+            bodyArea.className = 'tile-body-area';
+            bodyArea.textContent = memo.text || '';
+            bodyArea.style.fontSize = calculateFontSize(memo.text || '') + 'px';
+
+            content.appendChild(titleArea);
+            content.appendChild(hr);
+            content.appendChild(bodyArea);
+            tile.appendChild(content);
+
+            return tile;
+        }
+
+        function searchMemos(query) {
+            searchResults.innerHTML = '';
+            
+            if (!query.trim()) {
+                searchResults.innerHTML = '<div class="search-no-results">Enter a search term</div>';
+                return;
+            }
+
+            const lowerQuery = query.toLowerCase();
+            const results = [];
+
+            // 全フォルダを検索
+            folders.forEach(folder => {
+                folder.memos.forEach((memo, memoIndex) => {
+                    const titleMatch = memo.title && memo.title.toLowerCase().includes(lowerQuery);
+                    const textMatch = memo.text && memo.text.toLowerCase().includes(lowerQuery);
+                    
+                    if (titleMatch || textMatch) {
+                        results.push({
+                            memo: memo,
+                            folder: folder,
+                            memoIndex: memoIndex
+                        });
+                    }
+                });
+            });
+
+            if (results.length === 0) {
+                searchResults.innerHTML = '<div class="search-no-results">No results found</div>';
+                return;
+            }
+
+            results.forEach(result => {
+                const item = document.createElement('div');
+                item.className = 'search-result-item';
+
+                const tile = createSearchTile(result.memo);
+                item.appendChild(tile);
+
+                const folderName = document.createElement('div');
+                folderName.className = 'search-result-folder';
+                folderName.textContent = '📁 ' + result.folder.name;
+                item.appendChild(folderName);
+
+                item.onclick = () => {
+                    // 検索モーダルは閉じない（メモを閉じた時に戻せるように）
+                    // メモモーダルを上に重ねる形で展開
+
+                    if (result.folder.id !== currentFolderId) {
+                        saveCurrentFolder();
+                        currentFolderId = result.folder.id;
+                        localStorage.setItem('currentFolderId', currentFolderId);
+                        loadCurrentFolder();
+                        renderTabs();
+                        renderMemos();
+                    }
+                    
+                    // メモを開く
+                    const index = memos.findIndex(m => m === result.memo);
+                    if (index !== -1) {
+                        openModal(index);
+                    }
+                };
+
+                searchResults.appendChild(item);
+
+                // タイトルの自動スクロール判定（タイル追加後にチェック）
+                const titleText = tile.querySelector('.tile-title-text');
+                const titleArea = tile.querySelector('.tile-title-area');
+                if (titleText && titleArea) {
+                    setTimeout(() => {
+                        if (titleText.scrollWidth > titleArea.clientWidth) {
+                            titleText.classList.add('scrolling');
+                        }
+                    }, 100);
+                }
+            });
+        }
+
+        function renderTrash() {
+            trashList.innerHTML = '';
+            
+            if (trashedMemos.length === 0) {
+                trashList.innerHTML = '<div class="trash-empty">Trash is empty</div>';
+                return;
+            }
+
+            trashedMemos.forEach((memo, index) => {
+                const item = document.createElement('div');
+                item.className = 'trash-item';
+                
+                const text = document.createElement('div');
+                text.className = 'trash-text';
+                text.textContent = memo.text;
+                
+                const buttons = document.createElement('div');
+                buttons.className = 'trash-buttons';
+                
+                const restoreBtn = document.createElement('button');
+                restoreBtn.className = 'trash-restore-btn';
+                restoreBtn.textContent = 'Restore';
+                restoreBtn.onclick = () => restoreFromTrash(index);
+                
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'trash-delete-btn';
+                deleteBtn.textContent = 'Delete Forever';
+                deleteBtn.onclick = () => permanentDelete(index);
+                
+                buttons.appendChild(restoreBtn);
+                buttons.appendChild(deleteBtn);
+                
+                item.appendChild(text);
+                item.appendChild(buttons);
+                
+                trashList.appendChild(item);
+            });
+        }
+
+        function restoreFromTrash(index) {
+            memos.push(trashedMemos[index]);
+            trashedMemos.splice(index, 1);
+            saveCurrentFolder();
+            localStorage.setItem('trashedMemos', JSON.stringify(trashedMemos));
+            renderMemos();
+            renderTrash();
+        }
+
+        function permanentDelete(index) {
+            if (!confirm('Delete permanently?\nThis action cannot be undone.')) {
+                return;
+            }
+            trashedMemos.splice(index, 1);
+            localStorage.setItem('trashedMemos', JSON.stringify(trashedMemos));
+            renderTrash();
+        }
+
+        function clearTrash() {
+            if (!confirm('Empty the trash?\nThis action cannot be undone.')) {
+                return;
+            }
+            trashedMemos = [];
+            localStorage.setItem('trashedMemos', JSON.stringify(trashedMemos));
+            renderTrash();
+        }
+
+        addBtn.onclick = () => openModal();
+        doneBtn.onclick = exitEditMode;
+        saveBtn.onclick = saveMemo;
+        closeBtn.onclick = closeModal;
+        memoInput.oninput = updateCharCount;
+        
+        // アクションバーのボタン
+        moveBtn.onclick = startMoveMode;
+        bulkDeleteBtn.onclick = bulkDelete;
+        pasteBtn.onclick = pasteMemos;
+        pasteCancelBtn.onclick = cancelMoveMode;
+        
+        // お気に入りトグル
+        favoriteBtn.onclick = () => {
+            favoriteBtn.classList.toggle('active');
+            if (favoriteBtn.classList.contains('active')) {
+                favoriteBtn.textContent = '★';
+            } else {
+                favoriteBtn.textContent = '☆';
+            }
+        };
+
+        // メニュー機能
+        menuBtn.onclick = (e) => {
+            e.stopPropagation();
+            menuDropdown.classList.toggle('active');
+        };
+
+        document.addEventListener('click', (e) => {
+            if (!menuDropdown.contains(e.target) && e.target !== menuBtn) {
+                menuDropdown.classList.remove('active');
+            }
+        });
+
+        // フォルダ管理
+        folderSaveBtn.onclick = saveFolderName;
+        folderCancelBtn.onclick = () => {
+            folderModal.classList.remove('active');
+        };
+
+        folderDeleteBtn.onclick = deleteFolder;
+
+        folderModal.onclick = (e) => {
+            if (e.target === folderModal) {
+                folderModal.classList.remove('active');
+            }
+        };
+
+        folderInput.onkeydown = (e) => {
+            if (e.key === 'Enter') {
+                saveFolderName();
+            }
+        };
+
+        // 検索機能
+        searchBtn.onclick = () => {
+            searchModal.classList.add('active');
+            searchInput.focus();
+            menuDropdown.classList.remove('active');
+        };
+
+        searchCloseBtn.onclick = () => {
+            searchModal.classList.remove('active');
+            searchInput.value = '';
+            searchResults.innerHTML = '';
+        };
+
+        searchInput.oninput = () => {
+            searchMemos(searchInput.value);
+        };
+
+        searchModal.onclick = (e) => {
+            if (e.target === searchModal) {
+                searchModal.classList.remove('active');
+                searchInput.value = '';
+                searchResults.innerHTML = '';
+            }
+        };
+
+        // タイルテーマ選択
+        tileThemeBtn.onclick = () => {
+            tileThemeModal.classList.add('active');
+            renderTileThemes();
+            menuDropdown.classList.remove('active');
+        };
+
+        tileThemeCloseBtn.onclick = () => {
+            tileThemeModal.classList.remove('active');
+        };
+
+        tileThemeModal.onclick = (e) => {
+            if (e.target === tileThemeModal) {
+                tileThemeModal.classList.remove('active');
+            }
+        };
+
+        // 背景テーマ選択
+        bgThemeBtn.onclick = () => {
+            bgThemeModal.classList.add('active');
+            renderBgThemes();
+            menuDropdown.classList.remove('active');
+        };
+
+        bgThemeCloseBtn.onclick = () => {
+            bgThemeModal.classList.remove('active');
+        };
+
+        bgThemeModal.onclick = (e) => {
+            if (e.target === bgThemeModal) {
+                bgThemeModal.classList.remove('active');
+            }
+        };
+
+        // こんにちは機能
+        helloBtn.onclick = () => {
+            menuDropdown.classList.remove('active');
+            
+            // 表示
+            setTimeout(() => {
+                helloOverlay.classList.add('show');
+            }, 100);
+            
+            // フェードアウト開始
+            setTimeout(() => {
+                helloOverlay.classList.remove('show');
+                helloOverlay.classList.add('fade');
+            }, 1000);
+            
+            // 完全に消す
+            setTimeout(() => {
+                helloOverlay.classList.remove('fade');
+            }, 1500);
+        };
+
+        // 設定ボタン
+        settingsBtn.onclick = () => {
+            perFolderColumnCheck.checked = perFolderColumn;
+            perFolderThemeCheck.checked = perFolderTheme;
+            // フォント選択の初期化
+            if (fontType === 'mincho') {
+                fontMincho.checked = true;
+            } else {
+                fontGothic.checked = true;
+            }
+            settingsModal.classList.add('active');
+            menuDropdown.classList.remove('active');
+        };
+
+        settingsCloseBtn.onclick = () => {
+            settingsModal.classList.remove('active');
+        };
+
+        settingsModal.onclick = (e) => {
+            if (e.target === settingsModal) {
+                settingsModal.classList.remove('active');
+            }
+        };
+
+        // フォント選択
+        fontMincho.onchange = () => {
+            if (fontMincho.checked) {
+                fontType = 'mincho';
+                localStorage.setItem('fontType', fontType);
+                applyFontType();
+            }
+        };
+
+        fontGothic.onchange = () => {
+            if (fontGothic.checked) {
+                fontType = 'gothic';
+                localStorage.setItem('fontType', fontType);
+                applyFontType();
+            }
+        };
+
+        // フォルダ別列数チェックボックス
+        perFolderColumnCheck.onchange = () => {
+            perFolderColumn = perFolderColumnCheck.checked;
+            localStorage.setItem('perFolderColumn', perFolderColumn);
+            
+            if (perFolderColumn) {
+                // ONにした時：現在のグローバル設定を各フォルダにコピー
+                folders.forEach(folder => {
+                    if (!folder.columnCount) {
+                        folder.columnCount = columnCount;
+                    }
+                });
+                localStorage.setItem('folders', JSON.stringify(folders));
+            }
+            applyColumnCount();
+        };
+
+        // フォルダ別テーマチェックボックス
+        perFolderThemeCheck.onchange = () => {
+            perFolderTheme = perFolderThemeCheck.checked;
+            localStorage.setItem('perFolderTheme', perFolderTheme);
+            
+            if (perFolderTheme) {
+                // ONにした時：現在のグローバル設定を各フォルダにコピー
+                folders.forEach(folder => {
+                    if (!folder.theme) {
+                        folder.theme = currentTheme;
+                    }
+                });
+                localStorage.setItem('folders', JSON.stringify(folders));
+            }
+        };
+
+        // 列数変更機能
+        function setColumnCount(newColumnCount) {
+            newColumnCount = Math.max(2, Math.min(5, newColumnCount));
+            if (perFolderColumn) {
+                // フォルダ別モード：現在のフォルダにだけ適用
+                const folder = folders.find(f => f.id === currentFolderId);
+                if (folder) {
+                    folder.columnCount = newColumnCount;
+                    localStorage.setItem('folders', JSON.stringify(folders));
+                }
+            } else {
+                // グローバルモード：全体に適用
+                columnCount = newColumnCount;
+                localStorage.setItem('columnCount', columnCount);
+            }
+            applyColumnCount();
+        }
+
+        columnMinusBtn.onclick = (e) => {
+            e.stopPropagation();
+            setColumnCount(getColumnCount() - 1);
+        };
+        columnPlusBtn.onclick = (e) => {
+            e.stopPropagation();
+            setColumnCount(getColumnCount() + 1);
+        };
+
+        // 入力文字サイズ設定
+        fontsizeBtn.onclick = () => {
+            fontsizeModal.classList.add('active');
+            menuDropdown.classList.remove('active');
+        };
+
+        fontsizeSlider.oninput = () => {
+            inputFontSize = parseInt(fontsizeSlider.value);
+            localStorage.setItem('inputFontSize', inputFontSize);
+            applyInputFontSize();
+        };
+
+        fontsizeCloseBtn.onclick = () => {
+            fontsizeModal.classList.remove('active');
+        };
+
+        fontsizeModal.onclick = (e) => {
+            if (e.target === fontsizeModal) {
+                fontsizeModal.classList.remove('active');
+            }
+        };
+
+        // サムネイル文字サイズ設定
+        thumbnailSizeBtn.onclick = () => {
+            thumbnailSlider.value = thumbnailFontSize;
+            thumbnailValue.textContent = thumbnailFontSize + 'px';
+            thumbnailPreviewText.style.fontSize = thumbnailFontSize + 'px';
+            thumbnailModal.classList.add('active');
+            menuDropdown.classList.remove('active');
+        };
+
+        thumbnailSlider.oninput = () => {
+            thumbnailFontSize = parseInt(thumbnailSlider.value);
+            thumbnailValue.textContent = thumbnailFontSize + 'px';
+            thumbnailPreviewText.style.fontSize = thumbnailFontSize + 'px';
+            localStorage.setItem('thumbnailFontSize', thumbnailFontSize);
+        };
+
+        thumbnailCloseBtn.onclick = () => {
+            thumbnailModal.classList.remove('active');
+            renderMemos(); // サイズ変更を反映
+        };
+
+        thumbnailModal.onclick = (e) => {
+            if (e.target === thumbnailModal) {
+                thumbnailModal.classList.remove('active');
+                renderMemos();
+            }
+        };
+
+        // 並び順変更機能
+        sortBtn.onclick = () => {
+            sortOrder = sortOrder === 'newest' ? 'oldest' : 'newest';
+            localStorage.setItem('sortOrder', sortOrder);
+            applySortOrder();
+            renderMemos();
+            menuDropdown.classList.remove('active');
+        };
+
+        // ゴミ箱機能
+        trashBtn.onclick = () => {
+            trashModal.classList.add('active');
+            renderTrash();
+            menuDropdown.classList.remove('active');
+        };
+
+        trashCloseBtn.onclick = () => {
+            trashModal.classList.remove('active');
+        };
+
+        trashClearBtn.onclick = clearTrash;
+
+        trashModal.onclick = (e) => {
+            if (e.target === trashModal) {
+                trashModal.classList.remove('active');
+            }
+        };
+
+        // エクスポート機能
+        exportBtn.onclick = () => {
+            // 全フォルダをエクスポート
+            const exportData = {
+                folders: folders,
+                currentFolderId: currentFolderId,
+                trashedMemos: trashedMemos,
+                settings: {
+                    columnCount: columnCount,
+                    perFolderColumn: perFolderColumn,
+                    perFolderTheme: perFolderTheme,
+                    currentTheme: currentTheme,
+                    currentBgTheme: currentBgTheme,
+                    currentTileOpacity: currentTileOpacity,
+                    thumbnailFontSize: thumbnailFontSize,
+                    inputFontSize: inputFontSize,
+                    fontType: fontType,
+                    sortOrder: sortOrder
+                }
+            };
+            const dataStr = JSON.stringify(exportData, null, 2);
+            const blob = new Blob([dataStr], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'tile_memo.json';
+            a.click();
+            URL.revokeObjectURL(url);
+            settingsModal.classList.remove('active');
+        };
+
+        // インポート機能
+        importBtn.onclick = () => {
+            fileInput.click();
+            settingsModal.classList.remove('active');
+        };
+
+        fileInput.onchange = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const importedData = JSON.parse(e.target.result);
+                    
+                    // 新形式（folders含む）
+                    if (importedData.folders && Array.isArray(importedData.folders)) {
+                        if (confirm('Overwrite current data?\n(Cancel to add instead)')) {
+                            folders = importedData.folders;
+                            currentFolderId = importedData.currentFolderId || folders[0]?.id;
+                            
+                            // 設定も復元
+                            if (importedData.settings) {
+                                const s = importedData.settings;
+                                if (s.columnCount) {
+                                    columnCount = s.columnCount;
+                                    localStorage.setItem('columnCount', columnCount);
+                                }
+                                if (s.perFolderColumn !== undefined) {
+                                    perFolderColumn = s.perFolderColumn;
+                                    localStorage.setItem('perFolderColumn', perFolderColumn);
+                                }
+                                if (s.perFolderTheme !== undefined) {
+                                    perFolderTheme = s.perFolderTheme;
+                                    localStorage.setItem('perFolderTheme', perFolderTheme);
+                                }
+                                if (s.currentTheme) {
+                                    currentTheme = s.currentTheme;
+                                    localStorage.setItem('currentTheme', currentTheme);
+                                }
+                                if (s.currentBgTheme) {
+                                    currentBgTheme = s.currentBgTheme;
+                                    localStorage.setItem('currentBgTheme', currentBgTheme);
+                                    applyBgTheme();
+                                }
+                                if (s.currentTileOpacity !== undefined) {
+                                    currentTileOpacity = parseFloat(s.currentTileOpacity);
+                                    localStorage.setItem('currentTileOpacity', currentTileOpacity);
+                                    applyTileOpacity();
+                                }
+                                if (s.thumbnailFontSize) {
+                                    thumbnailFontSize = s.thumbnailFontSize;
+                                    localStorage.setItem('thumbnailFontSize', thumbnailFontSize);
+                                }
+                                if (s.inputFontSize) {
+                                    inputFontSize = s.inputFontSize;
+                                    localStorage.setItem('inputFontSize', inputFontSize);
+                                    applyInputFontSize();
+                                }
+                                if (s.fontType) {
+                                    fontType = s.fontType;
+                                    localStorage.setItem('fontType', fontType);
+                                    applyFontType();
+                                }
+                                if (s.sortOrder) {
+                                    sortOrder = s.sortOrder;
+                                    localStorage.setItem('sortOrder', sortOrder);
+                                    applySortOrder();
+                                }
+                            }
+                            // trashedMemos 復元（上書きモード）
+                            if (Array.isArray(importedData.trashedMemos)) {
+                                trashedMemos = importedData.trashedMemos;
+                                localStorage.setItem('trashedMemos', JSON.stringify(trashedMemos));
+                            }
+                        } else {
+                            // 追加モード：フォルダを追加
+                            importedData.folders.forEach(folder => {
+                                folder.id = 'folder_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+                                folders.push(folder);
+                            });
+                            // ゴミ箱も追加（上書きせず既存に足す）
+                            if (Array.isArray(importedData.trashedMemos)) {
+                                trashedMemos.push(...importedData.trashedMemos);
+                                localStorage.setItem('trashedMemos', JSON.stringify(trashedMemos));
+                            }
+                        }
+                        localStorage.setItem('folders', JSON.stringify(folders));
+                        localStorage.setItem('currentFolderId', currentFolderId);
+                        loadCurrentFolder();
+                        applyFolderTheme();
+                        renderTabs();
+                        renderMemos();
+                        applyColumnCount();
+                        alert('Import complete!');
+                    }
+                    // 旧形式（メモ配列だけ）
+                    else if (Array.isArray(importedData)) {
+                        if (folders.length === 0) {
+                            folders.push({ id: 'folder_' + Date.now(), name: 'Imported', memos: importedData });
+                            currentFolderId = folders[0].id;
+                        } else {
+                            const folder = folders.find(f => f.id === currentFolderId);
+                            if (folder) {
+                                folder.memos.push(...importedData);
+                            }
+                        }
+                        localStorage.setItem('folders', JSON.stringify(folders));
+                        loadCurrentFolder();
+                        renderTabs();
+                        renderMemos();
+                        alert('Import complete!');
+                    } else {
+                        alert('Invalid file format');
+                    }
+                } catch (error) {
+                    alert('Failed to read file');
+                }
+            };
+            reader.readAsText(file);
+            fileInput.value = '';
+        };
+
+        modal.onclick = (e) => {
+            if (e.target === modal) closeWithSave();
+        };
+
+        memoInput.onkeydown = (e) => {
+            if (e.key === 'Enter' && e.ctrlKey) {
+                saveMemo();
+            }
+        };
+
+        // スワイプでフォルダ切り替え（ページフロー式）
+        let swipeArea = document.body;
+        let swipeStartX = 0;
+        let swipeStartY = 0;
+        let isSwipeActive = false;
+        
+        swipeArea.addEventListener('touchstart', (e) => {
+            // アニメーション中・モーダルが開いてたら無効（移動モード中は許可）
+            if (isAnimating ||
+                modal.classList.contains('active') || 
+                trashModal.classList.contains('active') ||
+                fontsizeModal.classList.contains('active') ||
+                folderModal.classList.contains('active') ||
+                tileThemeModal.classList.contains('active') ||
+                bgThemeModal.classList.contains('active') ||
+                (isEditMode && !isMoveMode)) {
+                return;
+            }
+            
+            swipeStartX = e.touches[0].clientX;
+            swipeStartY = e.touches[0].clientY;
+            isSwipeActive = false;
+        });
+
+        swipeArea.addEventListener('touchmove', (e) => {
+            if (modal.classList.contains('active') || 
+                trashModal.classList.contains('active') ||
+                fontsizeModal.classList.contains('active') ||
+                folderModal.classList.contains('active') ||
+                tileThemeModal.classList.contains('active') ||
+                bgThemeModal.classList.contains('active') ||
+                (isEditMode && !isMoveMode)) {
+                return;
+            }
+
+            const currentX = e.touches[0].clientX;
+            const currentY = e.touches[0].clientY;
+            const diffX = currentX - swipeStartX;
+            const diffY = Math.abs(currentY - swipeStartY);
+
+            // Y方向の移動が大きい場合はスワイプ無効
+            if (diffY > 30 && !isSwipeActive) {
+                return;
+            }
+
+            // X方向の移動が閾値を超えたらスワイプ開始
+            if (Math.abs(diffX) > 15) {
+                isSwipeActive = true;
+                e.preventDefault();
+            }
+        });
+
+        swipeArea.addEventListener('touchend', (e) => {
+            if (modal.classList.contains('active') || 
+                trashModal.classList.contains('active') ||
+                fontsizeModal.classList.contains('active') ||
+                folderModal.classList.contains('active') ||
+                tileThemeModal.classList.contains('active') ||
+                bgThemeModal.classList.contains('active') ||
+                (isEditMode && !isMoveMode)) {
+                return;
+            }
+            
+            if (!isSwipeActive) return;
+
+            const endX = e.changedTouches[0].clientX;
+            const diffX = endX - swipeStartX;
+            const swipeThreshold = 50;
+            const currentIndex = folders.findIndex(f => f.id === currentFolderId);
+
+            if (diffX < -swipeThreshold && currentIndex < folders.length - 1) {
+                // ←左スワイプ - 右のタブへ（ページが左に流れる）
+                pageTransition('left', folders[currentIndex + 1].id);
+            } else if (diffX > swipeThreshold && currentIndex > 0) {
+                // →右スワイプ - 左のタブへ（ページが右に流れる）
+                pageTransition('right', folders[currentIndex - 1].id);
+            }
+
+            isSwipeActive = false;
+        });
+
+        // ページ遷移アニメーション
+        function pageTransition(direction, newFolderId) {
+            // アニメーション中は無視
+            if (isAnimating) return;
+            isAnimating = true;
+            
+            const slideOut = direction === 'left' ? '-100%' : '100%';
+            const slideIn = direction === 'left' ? '100%' : '-100%';
+            
+            // 現在のページをスライドアウト
+            swipeContainer.style.transition = 'transform 0.25s ease-out';
+            swipeContainer.style.transform = `translateX(${slideOut})`;
+            
+            setTimeout(() => {
+                // フォルダ切り替え
+                saveCurrentFolder();
+                currentFolderId = newFolderId;
+                localStorage.setItem('currentFolderId', currentFolderId);
+                loadCurrentFolder();
+                applyFolderTheme(); // フォルダ別テーマを反映
+                renderTabs();
+                renderMemos();
+                applyColumnCount(); // フォルダ別列数を反映
+                scrollToActiveTab();
+                
+                // 移動モード中は震えを維持
+                if (isMoveMode) {
+                    document.querySelectorAll('.tile').forEach(tile => {
+                        tile.classList.add('shaking');
+                    });
+                }
+                
+                // 新しいページを反対側から配置
+                swipeContainer.style.transition = 'none';
+                swipeContainer.style.transform = `translateX(${slideIn})`;
+                
+                // 強制リフロー
+                swipeContainer.offsetHeight;
+                
+                // 中央にスライドイン
+                swipeContainer.style.transition = 'transform 0.25s ease-out';
+                swipeContainer.style.transform = 'translateX(0)';
+                
+                // アニメーション完了後にフラグ解除
+                setTimeout(() => {
+                    isAnimating = false;
+                    // 念のためリセット
+                    swipeContainer.style.transition = '';
+                    swipeContainer.style.transform = '';
+                }, 260);
+            }, 260);
+        }
+        
+        // 画面がズレた時のリカバリー関数
+        function resetSwipeContainer() {
+            swipeContainer.style.transition = '';
+            swipeContainer.style.transform = '';
+            isAnimating = false;
+        }
+
+        applyBgTheme();
+        applyTileOpacity();
+        loadCurrentFolder();
+        renderTabs();
+        renderMemos();
+        applyColumnCount();
+        applySortOrder();
+        applyInputFontSize();
+        applyFontType();
+
+        // menu-dropdown の active状態をmenuBtnに反映（開いてる時ハイライト）
+        new MutationObserver(() => {
+            menuBtn.classList.toggle('active', menuDropdown.classList.contains('active'));
+        }).observe(menuDropdown, { attributes: true, attributeFilter: ['class'] });
+
+        // アプリ終了時に自動保存
+        window.addEventListener('beforeunload', () => {
+            if (modal.classList.contains('active') && (memoInput.value.trim() || titleInput.value.trim())) {
+                const text = memoInput.value.trim();
+                const title = titleInput.value.trim();
+                const isFavorite = favoriteBtn.classList.contains('active');
+                const theme = getThemeData(currentTheme);
+                if (editingIndex !== null) {
+                    memos[editingIndex].text = text;
+                    memos[editingIndex].title = title;
+                    memos[editingIndex].favorite = isFavorite;
+                } else {
+                    memos.push({ text: text, title: title, favorite: isFavorite, gradient: getRandomGradient(), shadow: theme.shadow || null, tileBorder: theme.border || null });
+                }
+                saveCurrentFolder();
+            }
+        });
+
+        // ページ非表示時も保存（タブ切り替え・アプリ切り替え対応）
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden && modal.classList.contains('active') && (memoInput.value.trim() || titleInput.value.trim())) {
+                const text = memoInput.value.trim();
+                const title = titleInput.value.trim();
+                const isFavorite = favoriteBtn.classList.contains('active');
+                const theme = getThemeData(currentTheme);
+                if (editingIndex !== null) {
+                    memos[editingIndex].text = text;
+                    memos[editingIndex].title = title;
+                    memos[editingIndex].favorite = isFavorite;
+                } else {
+                    memos.push({ text: text, title: title, favorite: isFavorite, gradient: getRandomGradient(), shadow: theme.shadow || null, tileBorder: theme.border || null });
+                }
+                saveCurrentFolder();
+                renderMemos();
+            }
+
+            // シェーダー/水面背景はバックグラウンドで停止、復帰時に再開
+            const bgTheme = bgThemes[currentBgTheme];
+            if (document.hidden) {
+                if (shaderAnimationId !== null) {
+                    cancelAnimationFrame(shaderAnimationId);
+                    shaderAnimationId = null;
+                }
+                waterEngine.stop();
+            } else if (bgTheme) {
+                if (bgTheme.type === 'shader' && shaderAnimationId === null) {
+                    startShader(bgTheme);
+                } else if (bgTheme.type === 'water' && !waterEngine.isRunning()) {
+                    waterEngine.start(bgTheme);
+                }
+            }
+        });
+
+        // 戻るジェスチャー制御
+        history.pushState(null, '', location.href);
+        
+        window.addEventListener('popstate', (e) => {
+            // 常に履歴を維持（連続で戻れるように）
+            history.pushState(null, '', location.href);
+            
+            // メモ入力モーダルが開いている
+            if (modal.classList.contains('active')) {
+                closeWithSave();
+                return;
+            }
+            
+            // ゴミ箱モーダルが開いている
+            if (trashModal.classList.contains('active')) {
+                trashModal.classList.remove('active');
+                return;
+            }
+            
+            // フォントサイズモーダルが開いている
+            if (fontsizeModal.classList.contains('active')) {
+                fontsizeModal.classList.remove('active');
+                return;
+            }
+            
+            // サムネイルサイズモーダルが開いている
+            if (thumbnailModal.classList.contains('active')) {
+                thumbnailModal.classList.remove('active');
+                renderMemos();
+                return;
+            }
+            
+            // フォルダモーダルが開いている
+            if (folderModal.classList.contains('active')) {
+                folderModal.classList.remove('active');
+                return;
+            }
+            
+            // タイルテーマモーダルが開いている
+            if (tileThemeModal.classList.contains('active')) {
+                tileThemeModal.classList.remove('active');
+                return;
+            }
+            
+            // 背景テーマモーダルが開いている
+            if (bgThemeModal.classList.contains('active')) {
+                bgThemeModal.classList.remove('active');
+                return;
+            }
+            
+            // 検索モーダルが開いている
+            if (searchModal.classList.contains('active')) {
+                searchModal.classList.remove('active');
+                searchInput.value = '';
+                searchResults.innerHTML = '';
+                return;
+            }
+            
+            // 設定モーダルが開いている
+            if (settingsModal.classList.contains('active')) {
+                settingsModal.classList.remove('active');
+                return;
+            }
+            
+            // メニューが開いている
+            if (menuDropdown.classList.contains('active')) {
+                menuDropdown.classList.remove('active');
+                return;
+            }
+            
+            // 編集モード中・移動モード中
+            if (isEditMode || isMoveMode) {
+                if (isMoveMode) {
+                    cancelMoveMode();
+                } else {
+                    exitEditMode();
+                }
+                return;
+            }
+            
+            // ホーム画面 → アプリ終了
+            if (navigator.app && navigator.app.exitApp) {
+                navigator.app.exitApp();
+            } else {
+                window.close();
+            }
+        });
+
+    </script>
+</body>
+</html>
